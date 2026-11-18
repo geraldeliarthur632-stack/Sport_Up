@@ -1,0 +1,627 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Public/app-level gamification profile of a SportUp learner.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "photoURL": {
+          "type": "string",
+          "maxLength": 1024
+        },
+        "xp": {
+          "type": "integer"
+        },
+        "streak": {
+          "type": "integer"
+        },
+        "lastActivityDate": {
+          "type": "string",
+          "maxLength": 20
+        },
+        "selectedSportId": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "activeTeamId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "achievements": {
+          "type": "array"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "displayName", "xp", "streak", "createdAt", "updatedAt"]
+    },
+    "UserPrivateInfo": {
+      "title": "UserPrivateInfo",
+      "description": "Private PII for the authenticated user (email, auth provider).",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "provider": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "email", "updatedAt"]
+    },
+    "UserTeamMembershipRef": {
+      "title": "UserTeamMembershipRef",
+      "description": "Index of teams the user belongs to for fast lookup without collection-wide scans.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "teamId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "teamName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "sportId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "role": {
+          "type": "string",
+          "enum": ["coach", "player"]
+        },
+        "joinedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["userId", "teamId", "teamName", "sportId", "role", "joinedAt"]
+    },
+    "LessonProgress": {
+      "title": "LessonProgress",
+      "description": "Tracks user completion, score, and XP earned for a specific lesson.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "lessonId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "sportId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "completed": {
+          "type": "boolean"
+        },
+        "score": {
+          "type": "integer"
+        },
+        "xpEarned": {
+          "type": "integer"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["userId", "lessonId", "sportId", "completed", "score", "xpEarned", "updatedAt"]
+    },
+    "UserChips": {
+      "title": "UserChips",
+      "description": "Server-validated token/chip wallet for daily, purchased, and subscription chips.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "dailyChips": {
+          "type": "integer"
+        },
+        "purchasedChips": {
+          "type": "integer"
+        },
+        "subscriptionChips": {
+          "type": "integer"
+        },
+        "lastResetDate": {
+          "type": "string",
+          "maxLength": 20
+        },
+        "adsWatchedToday": {
+          "type": "integer"
+        },
+        "lastAdDate": {
+          "type": "string",
+          "maxLength": 20
+        },
+        "serverSignature": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["userId", "dailyChips", "purchasedChips", "subscriptionChips", "lastResetDate", "updatedAt"]
+    },
+    "UserSubscription": {
+      "title": "UserSubscription",
+      "description": "Monthly subscription status validated by the server.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "plan": {
+          "type": "string",
+          "enum": ["free", "monthly_pro"]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "unpaid", "canceled"]
+        },
+        "dailyAllowance": {
+          "type": "integer"
+        },
+        "accumulates": {
+          "type": "boolean"
+        },
+        "currentPeriodEnd": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "serverSignature": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["userId", "plan", "status", "dailyAllowance", "accumulates", "updatedAt"]
+    },
+    "Team": {
+      "title": "Team",
+      "description": "A sports team created by a coach or player.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "logoURL": {
+          "type": "string",
+          "maxLength": 1024
+        },
+        "sportId": {
+          "type": "string",
+          "enum": ["futsal", "futebol", "volei", "basquete", "pingpong"]
+        },
+        "inviteCode": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 12,
+          "pattern": "^[A-Z0-9]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "coachId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "wins": {
+          "type": "integer"
+        },
+        "draws": {
+          "type": "integer"
+        },
+        "losses": {
+          "type": "integer"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "name", "sportId", "inviteCode", "ownerId", "wins", "draws", "losses", "createdAt", "updatedAt"]
+    },
+    "TeamInvite": {
+      "title": "TeamInvite",
+      "description": "Lookup record keyed by unique inviteCode to join a team.",
+      "type": "object",
+      "properties": {
+        "inviteCode": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 12,
+          "pattern": "^[A-Z0-9]+$"
+        },
+        "teamId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "teamName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "sportId": {
+          "type": "string",
+          "enum": ["futsal", "futebol", "volei", "basquete", "pingpong"]
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["inviteCode", "teamId", "teamName", "sportId", "ownerId", "createdAt"]
+    },
+    "TeamMember": {
+      "title": "TeamMember",
+      "description": "Roster member inside a team (coach or player).",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "teamId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "photoURL": {
+          "type": "string",
+          "maxLength": 1024
+        },
+        "role": {
+          "type": "string",
+          "enum": ["coach", "player"]
+        },
+        "jerseyNumber": {
+          "type": "string",
+          "maxLength": 6
+        },
+        "position": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "isStarter": {
+          "type": "boolean"
+        },
+        "joinedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "teamId", "displayName", "role", "isStarter", "joinedAt", "updatedAt"]
+    },
+    "TeamMessage": {
+      "title": "TeamMessage",
+      "description": "Real-time WhatsApp-style team chat message or automatic match card.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "teamId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "senderId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "senderName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "senderPosition": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "senderJersey": {
+          "type": "string",
+          "maxLength": 6
+        },
+        "senderRole": {
+          "type": "string",
+          "enum": ["coach", "player"]
+        },
+        "type": {
+          "type": "string",
+          "enum": ["text", "audio", "image", "video", "file", "match_card"]
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "mediaURL": {
+          "type": "string",
+          "maxLength": 2048
+        },
+        "fileName": {
+          "type": "string",
+          "maxLength": 180
+        },
+        "replyToId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "replyToPreview": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "replyToSender": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "matchCardData": {
+          "type": "object"
+        },
+        "deliveryStatus": {
+          "type": "string",
+          "enum": ["delivered", "read"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "teamId", "senderId", "senderName", "type", "deliveryStatus", "createdAt", "updatedAt"]
+    },
+    "TeamMatch": {
+      "title": "TeamMatch",
+      "description": "Recorded match result for a team.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "teamId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "opponent": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "teamScore": {
+          "type": "integer"
+        },
+        "opponentScore": {
+          "type": "integer"
+        },
+        "outcome": {
+          "type": "string",
+          "enum": ["win", "draw", "loss"]
+        },
+        "matchDate": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 30
+        },
+        "location": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "createdBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdByName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "teamId", "opponent", "teamScore", "opponentScore", "outcome", "matchDate", "createdBy", "createdByName", "createdAt"]
+    },
+    "SportCatalog": {
+      "title": "SportCatalog",
+      "description": "Reference metadata for supported sports.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "name": { "type": "string", "maxLength": 64 },
+        "description": { "type": "string", "maxLength": 300 }
+      },
+      "required": ["id", "name"]
+    },
+    "LessonCatalog": {
+      "title": "LessonCatalog",
+      "description": "Reference metadata for SportUp lessons.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "sportId": { "type": "string", "maxLength": 64 },
+        "title": { "type": "string", "maxLength": 160 }
+      },
+      "required": ["id", "sportId", "title"]
+    },
+    "QuestionCatalog": {
+      "title": "QuestionCatalog",
+      "description": "Reference quiz questions linked to lessons.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "lessonId": { "type": "string", "maxLength": 128 },
+        "prompt": { "type": "string", "maxLength": 400 }
+      },
+      "required": ["id", "lessonId", "prompt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Learner profile, XP, streak, and achievements."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivateInfo" },
+      "description": "Isolated PII (email, provider) accessible only by the owner."
+    },
+    "/users/{userId}/teamMemberships/{teamId}": {
+      "schema": { "$ref": "#/entities/UserTeamMembershipRef" },
+      "description": "Teams the user has joined or created."
+    },
+    "/progress/{progressId}": {
+      "schema": { "$ref": "#/entities/LessonProgress" },
+      "description": "Lesson completion records owned by the learner."
+    },
+    "/chips/{userId}": {
+      "schema": { "$ref": "#/entities/UserChips" },
+      "description": "Server-validated token/chip balances per user."
+    },
+    "/subscriptions/{userId}": {
+      "schema": { "$ref": "#/entities/UserSubscription" },
+      "description": "Server-validated monthly subscription state per user."
+    },
+    "/teams/{teamId}": {
+      "schema": { "$ref": "#/entities/Team" },
+      "description": "Team header document."
+    },
+    "/teamInvites/{inviteCode}": {
+      "schema": { "$ref": "#/entities/TeamInvite" },
+      "description": "Direct invite-code lookup table."
+    },
+    "/teams/{teamId}/members/{memberId}": {
+      "schema": { "$ref": "#/entities/TeamMember" },
+      "description": "Team roster members (coach and players)."
+    },
+    "/teams/{teamId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/TeamMessage" },
+      "description": "Real-time WhatsApp-style team chat messages."
+    },
+    "/teams/{teamId}/matches/{matchId}": {
+      "schema": { "$ref": "#/entities/TeamMatch" },
+      "description": "Team match results and history."
+    },
+    "/sports/{sportId}": {
+      "schema": { "$ref": "#/entities/SportCatalog" },
+      "description": "Supported sports catalog."
+    },
+    "/lessons/{lessonId}": {
+      "schema": { "$ref": "#/entities/LessonCatalog" },
+      "description": "Curriculum lessons per sport."
+    },
+    "/questions/{questionId}": {
+      "schema": { "$ref": "#/entities/QuestionCatalog" },
+      "description": "Quiz questions for each lesson."
+    }
+  }
+}
