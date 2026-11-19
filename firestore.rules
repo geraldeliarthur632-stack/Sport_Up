@@ -280,7 +280,7 @@ service cloud.firestore {
 
     // Lesson Progress (Owner only)
     match /progress/{progressId} {
-      allow get: if isValidId(progressId) && isSignedIn() && existing().userId == request.auth.uid;
+      allow get: if isValidId(progressId) && isSignedIn() && resource != null && existing().userId == request.auth.uid;
       allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
       allow create: if isValidId(progressId) && isSignedIn()
         && isValidProgress(incoming())
@@ -340,12 +340,13 @@ service cloud.firestore {
         && incoming().createdAt == request.time;
       allow update: if false;
       allow delete: if isValidInviteCode(inviteCode) && isSignedIn()
+        && resource != null
         && existing().ownerId == request.auth.uid;
     }
 
     // Teams
     match /teams/{teamId} {
-      allow get: if isValidId(teamId) && isSignedIn() && (isTeamMember(teamId) || existing().ownerId == request.auth.uid);
+      allow get: if isValidId(teamId) && isSignedIn() && (isTeamMember(teamId) || (resource != null && existing().ownerId == request.auth.uid));
       allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
       allow create: if isValidId(teamId) && isSignedIn()
         && isValidTeam(incoming(), teamId)
@@ -408,7 +409,7 @@ service cloud.firestore {
           && incoming().updatedAt == request.time
           && incoming().diff(existing()).affectedKeys().hasOnly(['deliveryStatus', 'updatedAt']);
         allow delete: if isValidId(teamId) && isValidId(messageId) && isSignedIn()
-          && (existing().senderId == request.auth.uid || isTeamOwnerOrCoach(teamId));
+          && ((resource != null && existing().senderId == request.auth.uid) || isTeamOwnerOrCoach(teamId));
       }
 
       // Team Matches

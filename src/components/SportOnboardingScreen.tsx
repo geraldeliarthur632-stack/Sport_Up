@@ -29,11 +29,21 @@ export const SportOnboardingScreen: React.FC<SportOnboardingScreenProps> = ({
     try {
       await onConfirmSport(selected);
     } catch (err) {
-      setErrorMsg(
-        err instanceof Error
-          ? err.message
-          : 'Não foi possível salvar o esporte escolhido. Tente novamente.'
-      );
+      const raw = err instanceof Error ? err.message : '';
+      if (
+        raw.includes('Missing or insufficient permissions') ||
+        raw.includes('permission-denied')
+      ) {
+        setErrorMsg(
+          'Não foi possível salvar seu perfil no momento. Verifique sua sessão e tente novamente.'
+        );
+      } else {
+        setErrorMsg(
+          raw && !raw.startsWith('{')
+            ? raw
+            : 'Não foi possível salvar o esporte escolhido. Tente novamente.'
+        );
+      }
       setSaving(false);
     }
   };

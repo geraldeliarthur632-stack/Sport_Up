@@ -11,6 +11,7 @@ import {
   serverTimestamp,
   setDoc,
   updateDoc,
+  where,
 } from 'firebase/firestore';
 import {
   ArrowLeftRight,
@@ -138,8 +139,12 @@ export const TeamTab: React.FC<TeamTabProps> = ({
   // Listen to user's team memberships
   useEffect(() => {
     const path = `users/${userProfile.uid}/teamMemberships`;
-    const unsub = onSnapshot(
+    const qMemberships = query(
       collection(db, path),
+      where('userId', '==', userProfile.uid)
+    );
+    const unsub = onSnapshot(
+      qMemberships,
       (snap) => {
         const list = snap.docs.map(
           (d) => d.data() as UserTeamMembershipRef

@@ -120,7 +120,6 @@ function SportUpApp() {
   const [showAdModal, setShowAdModal] = useState(false);
 
   useEffect(() => {
-    testFirestoreConnection();
     const unsub = onAuthStateChanged(auth, (u) => {
       setFbUser(u);
       setAuthReady(true);
@@ -205,6 +204,7 @@ function SportUpApp() {
     setOnboardingStatus('checking');
 
     async function checkProfileAndBootstrap() {
+      void testFirestoreConnection();
       const userRef = doc(db, 'users', uid);
       try {
         let snap;
@@ -231,8 +231,8 @@ function SportUpApp() {
               doc(db, 'users', uid, 'private', 'account'),
               {
                 uid,
-                email: fbUser.email,
-                provider: fbUser.providerData[0]?.providerId || 'password',
+                email: fbUser.email.slice(0, 200),
+                provider: (fbUser.providerData[0]?.providerId || 'password').slice(0, 40),
                 updatedAt: serverTimestamp(),
               },
               { merge: true }
@@ -248,11 +248,25 @@ function SportUpApp() {
           setOnboardingStatus('needed');
         }
       }
-
-      await syncChipsAndWallet(uid, () => active);
     }
 
     checkProfileAndBootstrap();
+
+    return () => {
+      active = false;
+    };
+  }, [fbUser]);
+
+  // Attach real-time listeners and sync chips only after authentication and onboarding completion
+  useEffect(() => {
+    if (!fbUser || onboardingStatus !== 'done') {
+      return;
+    }
+
+    const uid = fbUser.uid;
+    let active = true;
+
+    void syncChipsAndWallet(uid, () => active);
 
     const unsubUser = onSnapshot(
       doc(db, 'users', uid),
@@ -309,7 +323,7 @@ function SportUpApp() {
       unsubSub();
       unsubProgress();
     };
-  }, [fbUser]);
+  }, [fbUser, onboardingStatus]);
 
   const handleSelectSport = async (sportId: SportId) => {
     setSelectedSport(sportId);
@@ -421,15 +435,23 @@ function SportUpApp() {
     await fbUser.reload().catch(() => {});
     const pending = getPendingRegistrationProfile(uid);
 
-    const displayName =
+    const rawName = (
       pending?.displayName ||
       fbUser.displayName ||
       fbUser.email?.split('@')[0] ||
-      'Atleta SportUp';
-    const photoURL = pending?.photoURL || fbUser.photoURL || '';
+      'Atleta SportUp'
+    ).trim();
+    const displayName = rawName.slice(0, 80) || 'Atleta SportUp';
+    const rawPhotoURL = (pending?.photoURL || fbUser.photoURL || '').trim();
+    const photoURL = rawPhotoURL.length <= 1024 ? rawPhotoURL : '';
 
     const userRef = doc(db, 'users', uid);
-    const existingSnap = await getDoc(userRef);
+    let existingSnap;
+    try {
+      existingSnap = await getDoc(userRef);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.GET, `users/${uid}`);
+    }
 
     if (!existingSnap.exists()) {
       const initialProfile: Record<string, unknown> = {
@@ -445,7 +467,11 @@ function SportUpApp() {
       if (photoURL) {
         initialProfile.photoURL = photoURL;
       }
-      await setDoc(userRef, initialProfile);
+      try {
+        await setDoc(userRef, initialProfile);
+      } catch (err) {
+        handleFirestoreError(err, OperationType.CREATE, `users/${uid}`);
+      }
       setUserProfile({
         uid,
         displayName,
@@ -456,10 +482,14 @@ function SportUpApp() {
         achievements: [],
       });
     } else {
-      await updateDoc(userRef, {
-        selectedSportId: chosenSport,
-        updatedAt: serverTimestamp(),
-      });
+      try {
+        await updateDoc(userRef, {
+          selectedSportId: chosenSport,
+          updatedAt: serverTimestamp(),
+        });
+      } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, `users/${uid}`);
+      }
     }
 
     if (fbUser.email) {
@@ -467,8 +497,8 @@ function SportUpApp() {
         doc(db, 'users', uid, 'private', 'account'),
         {
           uid,
-          email: fbUser.email,
-          provider: fbUser.providerData[0]?.providerId || 'password',
+          email: fbUser.email.slice(0, 200),
+          provider: (fbUser.providerData[0]?.providerId || 'password').slice(0, 40),
           updatedAt: serverTimestamp(),
         },
         { merge: true }

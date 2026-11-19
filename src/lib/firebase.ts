@@ -83,15 +83,27 @@ export function handleFirestoreError(
 }
 
 export async function testFirestoreConnection(): Promise<boolean> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    return true;
+  }
   try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
+    await getDocFromServer(doc(db, 'users', currentUser.uid));
     return true;
   } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message.includes('the client is offline')
-    ) {
+    const code = (error as { code?: string })?.code ?? '';
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('the client is offline')) {
       console.warn('Firestore offline — usando cache local.');
+      return false;
+    }
+    if (
+      code === 'permission-denied' ||
+      message.includes('Missing or insufficient permissions')
+    ) {
+      console.warn(
+        'Verificação de conexão Firestore retornou permission-denied; aguardando regras/sessão.'
+      );
       return false;
     }
     return true;
