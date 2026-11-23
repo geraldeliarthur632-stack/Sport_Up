@@ -66,6 +66,7 @@ export default defineConfig(() => {
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,svg,jpg,png,woff2}'],
           navigateFallback: `${base}index.html`,
+          navigateFallbackDenylist: [/^\/ads\.txt$/],
           runtimeCaching: [
             {
               urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
