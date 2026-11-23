@@ -811,6 +811,17 @@ async function startServer() {
     }
   });
 
+  app.get('/ads.txt', (_req, res) => {
+    const publicAdsPath = path.resolve(process.cwd(), 'public', 'ads.txt');
+    if (fs.existsSync(publicAdsPath)) {
+      res.type('text/plain; charset=utf-8').sendFile(publicAdsPath);
+      return;
+    }
+    res
+      .type('text/plain; charset=utf-8')
+      .send('google.com, pub-8922902046490534, DIRECT, f08c47fec0942fa0\n');
+  });
+
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       plugins: [
