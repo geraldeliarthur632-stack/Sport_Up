@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 
 @layer base {
   body {
@@ -6,6 +7,12 @@
     background-color: #F7F9FA;
     color: #0F172A;
     overflow-x: hidden;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+
+  html.dark body {
+    background-color: #0B1120;
+    color: #F1F5F9;
   }
 
   h1, h2, h3, h4, .font-display {

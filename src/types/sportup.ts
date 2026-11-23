@@ -67,6 +67,10 @@ export interface Lesson {
   order: number;
   title: string;
   subtitle: string;
+  unitTitle?: string;
+  playTag?: string;
+  simpleTip?: string;
+  targetPositions?: string[];
   xpReward: number;
   durationMin: number;
   theorySlides?: TheorySlide[];
@@ -102,6 +106,7 @@ export interface UserProfile {
   streak: number;
   lastActivityDate?: string;
   selectedSportId?: SportId;
+  selectedPositions?: string[];
   activeTeamId?: string;
   achievements?: string[];
   createdAt?: unknown;
@@ -165,8 +170,48 @@ export interface TeamMember {
   jerseyNumber?: string;
   position?: string;
   isStarter: boolean;
+  ovr?: number;
+  ovrAttributes?: Record<string, number>;
+  lastVideoSkill?: string;
+  aiSummary?: string;
+  ovrUpdatedAt?: string;
   joinedAt?: unknown;
   updatedAt?: unknown;
+}
+
+export type MatchEventKind =
+  | 'goal_point'
+  | 'foul'
+  | 'penalty_scored'
+  | 'penalty_missed'
+  | 'yellow_card'
+  | 'red_card';
+
+export interface MatchEvent {
+  id: string;
+  kind: MatchEventKind;
+  side: 'team' | 'opponent';
+  minuteLabel: string;
+  periodLabel: string;
+  playerName?: string;
+  note?: string;
+}
+
+export interface TeamGamePlan {
+  id: string;
+  teamId: string;
+  sportId: SportId;
+  title: string;
+  opponent?: string;
+  formation: string;
+  tactics: string;
+  trainingTitles?: string[];
+  starterUids?: string[];
+  aiSuggested?: boolean;
+  sharedInChat?: boolean;
+  createdBy: string;
+  createdByName: string;
+  createdAt?: unknown;
 }
 
 export interface TeamMessage {
@@ -177,7 +222,7 @@ export interface TeamMessage {
   senderPosition?: string;
   senderJersey?: string;
   senderRole?: 'coach' | 'player';
-  type: 'text' | 'audio' | 'image' | 'video' | 'file' | 'match_card';
+  type: 'text' | 'audio' | 'image' | 'video' | 'file' | 'match_card' | 'game_plan_card';
   text?: string;
   mediaURL?: string;
   fileName?: string;
@@ -192,6 +237,26 @@ export interface TeamMessage {
     outcome: 'win' | 'draw' | 'loss';
     matchDate: string;
     location?: string;
+    isLiveMatch?: boolean;
+    durationMinutes?: number;
+    hasHalftime?: boolean;
+    teamFouls?: number;
+    opponentFouls?: number;
+    teamPenalties?: number;
+    opponentPenalties?: number;
+    yellowCards?: number;
+    redCards?: number;
+    eventsSummary?: string;
+  };
+  gamePlanCardData?: {
+    planId: string;
+    title: string;
+    opponent?: string;
+    formation: string;
+    tactics: string;
+    trainings: string[];
+    starterSummary: string;
+    aiSuggested?: boolean;
   };
   deliveryStatus: 'delivered' | 'read';
   createdAt?: unknown;
@@ -207,6 +272,17 @@ export interface TeamMatch {
   outcome: 'win' | 'draw' | 'loss';
   matchDate: string;
   location?: string;
+  isLiveMatch?: boolean;
+  durationMinutes?: number;
+  hasHalftime?: boolean;
+  teamFouls?: number;
+  opponentFouls?: number;
+  teamPenalties?: number;
+  opponentPenalties?: number;
+  yellowCards?: number;
+  redCards?: number;
+  setScores?: string[];
+  events?: MatchEvent[];
   createdBy: string;
   createdByName: string;
   createdAt?: unknown;

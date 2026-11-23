@@ -29,7 +29,6 @@ import { TopBar } from './components/TopBar';
 import { VideoRewardModal } from './components/VideoRewardModal';
 import {
   claimAdRewardOnServer,
-  consumeChipOnServer,
   purchaseChipsOnServer,
   syncChipsWithServer,
 } from './lib/chipsApi';
@@ -43,6 +42,7 @@ import {
   testFirestoreConnection,
 } from './lib/firebase';
 import { getOfflineLesson } from './lib/offlineCache';
+import { SPORTS_BY_ID } from './data/sportsMeta';
 import type {
   ChipWallet,
   Lesson,
@@ -53,6 +53,37 @@ import type {
 } from './types/sportup';
 
 type AppTab = 'aprender' | 'time' | 'perfil' | 'loja';
+
+const POSITIONS_STORAGE_KEY = 'sportup_positions_by_sport_v1';
+
+function readStoredPositionsBySport(): Partial<Record<SportId, string[]>> {
+  try {
+    const raw = localStorage.getItem(POSITIONS_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as Partial<Record<SportId, string[]>>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveStoredPositionsForSport(sportId: SportId, positions: string[]): void {
+  try {
+    const current = readStoredPositionsBySport();
+    current[sportId] = positions;
+    localStorage.setItem(POSITIONS_STORAGE_KEY, JSON.stringify(current));
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+function sanitizePositionsForSport(
+  sportId: SportId,
+  positions?: string[]
+): string[] {
+  const meta = SPORTS_BY_ID[sportId];
+  const validIds = new Set(meta.positions.map((p) => p.id));
+  const clean = (positions ?? []).filter((id) => validIds.has(id)).slice(0, 3);
+  return clean.length > 0 ? clean : [meta.positions[0].id];
+}
 
 class ErrorBoundary extends Component<
   { children: React.ReactNode },
@@ -116,8 +147,35 @@ function SportUpApp() {
   >('idle');
   const [activeTab, setActiveTab] = useState<AppTab>('aprender');
   const [selectedSport, setSelectedSport] = useState<SportId>('futsal');
+  const [positionsBySport, setPositionsBySport] = useState<
+    Partial<Record<SportId, string[]>>
+  >(() => readStoredPositionsBySport());
+  const [selectedPositions, setSelectedPositions] = useState<string[]>(() => {
+    const stored = readStoredPositionsBySport();
+    return sanitizePositionsForSport('futsal', stored.futsal);
+  });
   const [activeLesson, setActiveLesson] = useState<Lesson | null>(null);
   const [showAdModal, setShowAdModal] = useState(false);
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    try {
+      return localStorage.getItem('sportup_theme') === 'dark' ? 'dark' : 'light';
+    } catch {
+      return 'light';
+    }
+  });
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+    try {
+      localStorage.setItem('sportup_theme', theme);
+    } catch {
+      // Ignore storage error
+    }
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
+  };
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
@@ -221,6 +279,21 @@ function SportUpApp() {
           setUserProfile(data);
           if (data.selectedSportId) {
             setSelectedSport(data.selectedSportId);
+            const stored = readStoredPositionsBySport();
+            const rawPos =
+              data.selectedPositions && data.selectedPositions.length > 0
+                ? data.selectedPositions
+                : stored[data.selectedSportId];
+            const cleanPos = sanitizePositionsForSport(
+              data.selectedSportId,
+              rawPos
+            );
+            setSelectedPositions(cleanPos);
+            saveStoredPositionsForSport(data.selectedSportId, cleanPos);
+            setPositionsBySport((prev) => ({
+              ...prev,
+              [data.selectedSportId!]: cleanPos,
+            }));
             setOnboardingStatus('done');
           } else {
             setOnboardingStatus('needed');
@@ -276,6 +349,13 @@ function SportUpApp() {
           setUserProfile(data);
           if (data.selectedSportId) {
             setSelectedSport(data.selectedSportId);
+            if (data.selectedPositions && data.selectedPositions.length > 0) {
+              const cleanPos = sanitizePositionsForSport(
+                data.selectedSportId,
+                data.selectedPositions
+              );
+              setSelectedPositions(cleanPos);
+            }
           }
         }
       },
@@ -325,23 +405,41 @@ function SportUpApp() {
     };
   }, [fbUser, onboardingStatus]);
 
-  const handleSelectSport = async (sportId: SportId) => {
+  const handleSelectSport = async (sportId: SportId, positions?: string[]) => {
+    const cleanPos = sanitizePositionsForSport(
+      sportId,
+      positions ?? positionsBySport[sportId]
+    );
     setSelectedSport(sportId);
+    setSelectedPositions(cleanPos);
+    saveStoredPositionsForSport(sportId, cleanPos);
+    setPositionsBySport((prev) => ({ ...prev, [sportId]: cleanPos }));
+
     if (fbUser && userProfile) {
       updateDoc(doc(db, 'users', fbUser.uid), {
         selectedSportId: sportId,
+        selectedPositions: cleanPos,
         updatedAt: serverTimestamp(),
       }).catch(() => {});
     }
   };
 
-  const handleStartLesson = async (lesson: Lesson, isFreeReview: boolean) => {
-    if (!isFreeReview) {
-      // Server-side chip consumption validation
-      const result = await consumeChipOnServer();
-      setChips(result.chips);
-      setSubscription(result.subscription);
+  const handleUpdatePositions = async (positions: string[]) => {
+    const cleanPos = sanitizePositionsForSport(selectedSport, positions);
+    setSelectedPositions(cleanPos);
+    saveStoredPositionsForSport(selectedSport, cleanPos);
+    setPositionsBySport((prev) => ({ ...prev, [selectedSport]: cleanPos }));
+
+    if (fbUser && userProfile) {
+      updateDoc(doc(db, 'users', fbUser.uid), {
+        selectedPositions: cleanPos,
+        updatedAt: serverTimestamp(),
+      }).catch(() => {});
     }
+  };
+
+  const handleStartLesson = async (lesson: Lesson) => {
+    // Unlimited lesson watching & replaying for all users
     const cached = getOfflineLesson(lesson.id);
     setActiveLesson(cached ?? lesson);
   };
@@ -429,9 +527,16 @@ function SportUpApp() {
     }).catch(() => {});
   };
 
-  const handleCompleteOnboarding = async (chosenSport: SportId) => {
+  const handleCompleteOnboarding = async (
+    chosenSport: SportId,
+    chosenPositions: string[]
+  ) => {
     if (!fbUser) return;
     const uid = fbUser.uid;
+    const cleanPositions = sanitizePositionsForSport(
+      chosenSport,
+      chosenPositions
+    );
     await fbUser.reload().catch(() => {});
     const pending = getPendingRegistrationProfile(uid);
 
@@ -460,6 +565,7 @@ function SportUpApp() {
         xp: 0,
         streak: 0,
         selectedSportId: chosenSport,
+        selectedPositions: cleanPositions,
         achievements: [],
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -479,12 +585,14 @@ function SportUpApp() {
         xp: 0,
         streak: 0,
         selectedSportId: chosenSport,
+        selectedPositions: cleanPositions,
         achievements: [],
       });
     } else {
       try {
         await updateDoc(userRef, {
           selectedSportId: chosenSport,
+          selectedPositions: cleanPositions,
           updatedAt: serverTimestamp(),
         });
       } catch (err) {
@@ -506,6 +614,9 @@ function SportUpApp() {
     }
 
     clearPendingRegistrationProfile(uid);
+    saveStoredPositionsForSport(chosenSport, cleanPositions);
+    setPositionsBySport((prev) => ({ ...prev, [chosenSport]: cleanPositions }));
+    setSelectedPositions(cleanPositions);
     setSelectedSport(chosenSport);
     setOnboardingStatus('done');
   };
@@ -569,13 +680,15 @@ function SportUpApp() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F7F9FA] flex flex-col">
+    <div className="min-h-screen bg-[#F7F9FA] dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col transition-colors">
       <OfflineIndicator />
 
       <TopBar
         xp={effectiveProfile.xp}
         streak={effectiveProfile.streak}
         chips={chips}
+        theme={theme}
+        onToggleTheme={toggleTheme}
         onOpenStore={() => setActiveTab('loja')}
       />
 
@@ -583,12 +696,12 @@ function SportUpApp() {
         {activeTab === 'aprender' && (
           <LearnTab
             selectedSport={selectedSport}
+            selectedPositions={selectedPositions}
+            positionsBySport={positionsBySport}
             onSelectSport={handleSelectSport}
+            onUpdatePositions={handleUpdatePositions}
             progressMap={progressMap}
-            chips={chips}
             onStartLesson={handleStartLesson}
-            onOpenAdReward={() => setShowAdModal(true)}
-            onOpenStore={() => setActiveTab('loja')}
           />
         )}
 
@@ -604,6 +717,8 @@ function SportUpApp() {
             userProfile={effectiveProfile}
             userEmail={fbUser.email}
             progressMap={progressMap}
+            theme={theme}
+            onToggleTheme={toggleTheme}
           />
         )}
 
@@ -621,7 +736,7 @@ function SportUpApp() {
       </main>
 
       {/* Fixed Bottom Navigation (4 Tabs) */}
-      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 pb-safe">
+      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 pb-safe">
         <div className="max-w-5xl mx-auto grid grid-cols-4 h-16">
           {(
             [

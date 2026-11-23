@@ -8,8 +8,10 @@ import {
   Flame,
   HelpCircle,
   LogOut,
+  Moon,
   Share2,
   Sparkles,
+  Sun,
   Trophy,
   X,
 } from 'lucide-react';
@@ -30,12 +32,16 @@ interface ProfileTabProps {
   userProfile: UserProfile;
   userEmail: string | null;
   progressMap: Record<string, LessonProgress>;
+  theme: 'light' | 'dark';
+  onToggleTheme: () => void;
 }
 
 export const ProfileTab: React.FC<ProfileTabProps> = ({
   userProfile,
   userEmail,
   progressMap,
+  theme,
+  onToggleTheme,
 }) => {
   const [editing, setEditing] = useState(false);
   const [nameInput, setNameInput] = useState(userProfile.displayName);
@@ -169,6 +175,31 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
           </div>
         </div>
 
+        {userProfile.selectedSportId && (
+          <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center gap-2 text-xs">
+            <span className="font-extrabold text-slate-500">
+              Esporte ativo:
+            </span>
+            <span className="px-2.5 py-1 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 font-extrabold">
+              {SPORTS_BY_ID[userProfile.selectedSportId]?.name}
+            </span>
+            {(userProfile.selectedPositions ?? []).map((posId) => {
+              const posName = SPORTS_BY_ID[
+                userProfile.selectedSportId!
+              ]?.positions.find((p) => p.id === posId)?.name;
+              if (!posName) return null;
+              return (
+                <span
+                  key={posId}
+                  className="px-2.5 py-1 rounded-xl bg-sky-50 border border-sky-200 text-sky-800 font-bold"
+                >
+                  {posName}
+                </span>
+              );
+            })}
+          </div>
+        )}
+
         {statusMsg && (
           <p className="text-xs font-bold text-emerald-700 bg-emerald-50 rounded-xl px-3 py-2">
             {statusMsg}
@@ -267,10 +298,40 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
 
         <PWAInstallButton />
 
+        <div className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-2xl p-4 flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-extrabold text-slate-900 dark:text-white">
+              Aparência do SportUp
+            </p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              {theme === 'light'
+                ? 'Modo Claro ativado (alta visibilidade em quadra)'
+                : 'Modo Escuro ativado'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onToggleTheme}
+            className="min-h-[42px] px-4 rounded-xl bg-emerald-50 hover:bg-emerald-100 border-2 border-emerald-300 text-emerald-900 font-extrabold text-xs flex items-center gap-2 shrink-0 dark:bg-slate-800 dark:border-slate-600 dark:text-white"
+          >
+            {theme === 'light' ? (
+              <>
+                <Sun className="w-4 h-4 text-amber-500" />
+                <span>Modo Claro</span>
+              </>
+            ) : (
+              <>
+                <Moon className="w-4 h-4 text-sky-400" />
+                <span>Modo Escuro</span>
+              </>
+            )}
+          </button>
+        </div>
+
         <button
           type="button"
           onClick={() => setShowFirebaseGuide(true)}
-          className="w-full min-h-[46px] rounded-2xl bg-white border-2 border-slate-200 text-slate-700 font-bold text-sm flex items-center justify-center gap-2 hover:bg-slate-50 transition"
+          className="w-full min-h-[46px] rounded-2xl bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-bold text-sm flex items-center justify-center gap-2 hover:bg-slate-50 transition"
         >
           <HelpCircle className="w-4 h-4 text-sky-600" />
           <span>Instruções de configuração do Firebase</span>

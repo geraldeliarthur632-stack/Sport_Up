@@ -12,6 +12,9 @@ import {
 import {
   Bell,
   CheckCheck,
+  ClipboardList,
+  Dumbbell,
+  Eye,
   FileText,
   Image as ImageIcon,
   Mic,
@@ -56,6 +59,11 @@ export const TeamChat: React.FC<TeamChatProps> = ({
     typeof Notification !== 'undefined' && Notification.permission === 'granted'
   );
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
+
+  const toggleCardDetails = (id: string) => {
+    setExpandedCards((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -165,7 +173,11 @@ export const TeamChat: React.FC<TeamChatProps> = ({
       docData.replyToPreview = (
         replyTo.text ||
         replyTo.fileName ||
-        (replyTo.type === 'match_card' ? 'Cartão de partida' : 'Mídia')
+        (replyTo.type === 'match_card'
+          ? 'Cartão de partida'
+          : replyTo.type === 'game_plan_card'
+            ? 'Plano de jogo'
+            : 'Mídia')
       ).slice(0, 200);
     }
 
@@ -319,8 +331,89 @@ export const TeamChat: React.FC<TeamChatProps> = ({
                   msg.senderJersey ? ` #${msg.senderJersey}` : ''
                 } · ${msg.senderName}`;
 
+          if (msg.type === 'game_plan_card' && msg.gamePlanCardData) {
+            const gp = msg.gamePlanCardData;
+            const isExpanded = Boolean(expandedCards[msg.id]);
+
+            return (
+              <div key={msg.id} className="flex justify-center">
+                <div className="w-full max-w-sm bg-white border-2 border-sky-300 rounded-2xl p-3.5 shadow-sm space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-extrabold text-sky-800 flex items-center gap-1">
+                      <ClipboardList className="w-3.5 h-3.5 text-sky-600" />
+                      Plano de Jogo {gp.aiSuggested ? '· IA' : ''}
+                    </span>
+                    <span className="font-bold text-slate-500 text-[11px]">
+                      {gp.formation}
+                    </span>
+                  </div>
+
+                  <div>
+                    <p className="text-sm font-extrabold text-slate-900">
+                      {gp.title}
+                    </p>
+                    {gp.opponent && (
+                      <p className="text-[11px] font-bold text-slate-500">
+                        Adversário: {gp.opponent}
+                      </p>
+                    )}
+                  </div>
+
+                  <p className={`text-xs text-slate-700 leading-relaxed whitespace-pre-line ${isExpanded ? '' : 'line-clamp-3'}`}>
+                    {gp.tactics}
+                  </p>
+
+                  {gp.trainings && gp.trainings.length > 0 && (
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-2 space-y-1">
+                      <p className="text-[11px] font-extrabold text-emerald-800 flex items-center gap-1">
+                        <Dumbbell className="w-3 h-3" />
+                        <span>Treinos selecionados:</span>
+                      </p>
+                      <div className="flex flex-wrap gap-1">
+                        {gp.trainings.map((tr) => (
+                          <span
+                            key={tr}
+                            className="px-2 py-0.5 rounded-lg bg-white border border-emerald-200 text-[10px] font-bold text-emerald-900"
+                          >
+                            {tr}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {isExpanded && gp.starterSummary && (
+                    <p className="text-[11px] font-semibold text-slate-600 bg-slate-50 rounded-xl p-2">
+                      <strong>Titulares / Overs:</strong> {gp.starterSummary}
+                    </p>
+                  )}
+
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-[10px] text-slate-500">
+                      Por {msg.senderName}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => toggleCardDetails(msg.id)}
+                      className="inline-flex items-center gap-1 rounded-xl bg-sky-50 hover:bg-sky-100 border border-sky-200 px-2.5 py-1 text-[11px] font-extrabold text-sky-800"
+                    >
+                      <Eye className="w-3 h-3" />
+                      <span>{isExpanded ? 'Ver menos' : 'Ver melhor'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
           if (msg.type === 'match_card' && msg.matchCardData) {
             const mc = msg.matchCardData;
+            const isExpanded = Boolean(expandedCards[msg.id]);
+            const hasExtraStats =
+              mc.isLiveMatch ||
+              typeof mc.teamFouls === 'number' ||
+              typeof mc.yellowCards === 'number' ||
+              typeof mc.teamPenalties === 'number';
             const badgeText =
               mc.outcome === 'win'
                 ? 'Vitória'
@@ -340,7 +433,7 @@ export const TeamChat: React.FC<TeamChatProps> = ({
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-bold text-slate-500 flex items-center gap-1">
                       <Trophy className="w-3.5 h-3.5 text-amber-500" />
-                      Partida registrada
+                      {mc.isLiveMatch ? 'Partida Ao Vivo encerrada' : 'Partida registrada'}
                     </span>
                     <span className={`font-extrabold px-2 py-0.5 rounded-lg ${badgeColor}`}>
                       {badgeText}
@@ -359,7 +452,41 @@ export const TeamChat: React.FC<TeamChatProps> = ({
                     {mc.matchDate}
                     {mc.location ? ` · ${mc.location}` : ''} · por {msg.senderName}
                   </p>
-                  <div className="pt-1 flex justify-center">
+
+                  {isExpanded && hasExtraStats && (
+                    <div className="bg-slate-50 rounded-xl p-2.5 text-[11px] text-slate-700 space-y-1 tabular-nums">
+                      <div className="flex justify-between font-bold">
+                        <span>Faltas: {mc.teamFouls ?? 0} x {mc.opponentFouls ?? 0}</span>
+                        <span>Pênaltis: {mc.teamPenalties ?? 0} x {mc.opponentPenalties ?? 0}</span>
+                      </div>
+                      <div className="flex justify-between font-bold">
+                        <span className="text-amber-700">Cartões Amarelos: {mc.yellowCards ?? 0}</span>
+                        <span className="text-rose-700">Vermelhos: {mc.redCards ?? 0}</span>
+                      </div>
+                      {mc.durationMinutes && (
+                        <p className="text-slate-500">
+                          Duração: {mc.durationMinutes} min · {mc.hasHalftime ? 'Com intervalo' : 'Sem intervalo'}
+                        </p>
+                      )}
+                      {mc.eventsSummary && (
+                        <p className="text-slate-600 whitespace-pre-line pt-0.5">
+                          {mc.eventsSummary}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="pt-1 flex flex-wrap items-center justify-center gap-2">
+                    {hasExtraStats && (
+                      <button
+                        type="button"
+                        onClick={() => toggleCardDetails(msg.id)}
+                        className="inline-flex items-center gap-1 rounded-xl bg-sky-50 hover:bg-sky-100 border border-sky-200 px-2.5 py-1 text-[11px] font-extrabold text-sky-800 transition"
+                      >
+                        <Eye className="w-3 h-3" />
+                        <span>{isExpanded ? 'Ver menos' : 'Ver melhor'}</span>
+                      </button>
+                    )}
                     <a
                       href={buildWhatsAppUrl(
                         formatChatMatchCardShareText({
@@ -376,7 +503,7 @@ export const TeamChat: React.FC<TeamChatProps> = ({
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1 text-[11px] font-extrabold text-emerald-800 transition"
                     >
-                      <span>Compartilhar placar no WhatsApp</span>
+                      <span>Compartilhar no WhatsApp</span>
                     </a>
                   </div>
                 </div>

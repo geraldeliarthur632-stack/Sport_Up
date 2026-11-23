@@ -59,7 +59,7 @@ service cloud.firestore {
       return data.keys().hasAll(['uid', 'displayName', 'xp', 'streak', 'createdAt', 'updatedAt'])
         && data.keys().hasOnly([
           'uid', 'displayName', 'photoURL', 'xp', 'streak',
-          'lastActivityDate', 'selectedSportId', 'activeTeamId',
+          'lastActivityDate', 'selectedSportId', 'selectedPositions', 'activeTeamId',
           'achievements', 'createdAt', 'updatedAt'
         ])
         && data.uid == userId
@@ -70,6 +70,14 @@ service cloud.firestore {
         && data.streak is int && data.streak >= 0 && data.streak <= 10000
         && (!('lastActivityDate' in data) || (data.lastActivityDate is string && data.lastActivityDate.size() <= 20))
         && (!('selectedSportId' in data) || isValidSportId(data.selectedSportId))
+        && (!('selectedPositions' in data) || (
+          data.selectedPositions is list &&
+          data.selectedPositions.size() >= 1 &&
+          data.selectedPositions.size() <= 3 &&
+          data.selectedPositions[0] is string && data.selectedPositions[0].size() >= 1 && data.selectedPositions[0].size() <= 64 &&
+          (data.selectedPositions.size() < 2 || (data.selectedPositions[1] is string && data.selectedPositions[1].size() >= 1 && data.selectedPositions[1].size() <= 64)) &&
+          (data.selectedPositions.size() < 3 || (data.selectedPositions[2] is string && data.selectedPositions[2].size() >= 1 && data.selectedPositions[2].size() <= 64))
+        ))
         && (!('activeTeamId' in data) || (data.activeTeamId is string && data.activeTeamId.size() <= 128))
         && (!('achievements' in data) || (data.achievements is list && data.achievements.size() <= 50 && (data.achievements.size() == 0 || data.achievements[0] is string)))
         && data.createdAt is timestamp
@@ -170,7 +178,10 @@ service cloud.firestore {
 
     function isValidTeamMember(data, teamId, memberId) {
       return data.keys().hasAll(['uid', 'teamId', 'displayName', 'role', 'isStarter', 'joinedAt', 'updatedAt'])
-        && data.keys().hasOnly(['uid', 'teamId', 'displayName', 'photoURL', 'role', 'jerseyNumber', 'position', 'isStarter', 'joinedAt', 'updatedAt'])
+        && data.keys().hasOnly([
+          'uid', 'teamId', 'displayName', 'photoURL', 'role', 'jerseyNumber', 'position', 'isStarter',
+          'ovr', 'ovrAttributes', 'lastVideoSkill', 'aiSummary', 'ovrUpdatedAt', 'joinedAt', 'updatedAt'
+        ])
         && data.uid == memberId
         && data.teamId == teamId
         && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80
@@ -179,8 +190,36 @@ service cloud.firestore {
         && (!('jerseyNumber' in data) || (data.jerseyNumber is string && data.jerseyNumber.size() <= 6))
         && (!('position' in data) || (data.position is string && data.position.size() <= 60))
         && data.isStarter is bool
+        && (!('ovr' in data) || (data.ovr is int && data.ovr >= 40 && data.ovr <= 99))
+        && (!('ovrAttributes' in data) || (data.ovrAttributes is map && data.ovrAttributes.size() <= 8))
+        && (!('lastVideoSkill' in data) || (data.lastVideoSkill is string && data.lastVideoSkill.size() <= 100))
+        && (!('aiSummary' in data) || (data.aiSummary is string && data.aiSummary.size() <= 600))
+        && (!('ovrUpdatedAt' in data) || (data.ovrUpdatedAt is string && data.ovrUpdatedAt.size() <= 40))
         && data.joinedAt is timestamp
         && data.updatedAt is timestamp;
+    }
+
+    function isValidTeamGamePlan(data, teamId, planId) {
+      return data.keys().hasAll(['id', 'teamId', 'sportId', 'title', 'formation', 'tactics', 'createdBy', 'createdByName', 'createdAt'])
+        && data.keys().hasOnly([
+          'id', 'teamId', 'sportId', 'title', 'opponent', 'formation', 'tactics',
+          'trainingTitles', 'starterUids', 'aiSuggested', 'sharedInChat',
+          'createdBy', 'createdByName', 'createdAt'
+        ])
+        && data.id == planId
+        && data.teamId == teamId
+        && isValidSportId(data.sportId)
+        && data.title is string && data.title.size() >= 2 && data.title.size() <= 100
+        && (!('opponent' in data) || (data.opponent is string && data.opponent.size() <= 80))
+        && data.formation is string && data.formation.size() >= 1 && data.formation.size() <= 80
+        && data.tactics is string && data.tactics.size() >= 1 && data.tactics.size() <= 2000
+        && (!('trainingTitles' in data) || (data.trainingTitles is list && data.trainingTitles.size() <= 10 && (data.trainingTitles.size() == 0 || data.trainingTitles[0] is string)))
+        && (!('starterUids' in data) || (data.starterUids is list && data.starterUids.size() <= 25 && (data.starterUids.size() == 0 || data.starterUids[0] is string)))
+        && (!('aiSuggested' in data) || data.aiSuggested is bool)
+        && (!('sharedInChat' in data) || data.sharedInChat is bool)
+        && isValidId(data.createdBy)
+        && data.createdByName is string && data.createdByName.size() >= 1 && data.createdByName.size() <= 80
+        && data.createdAt is timestamp;
     }
 
     function isValidTeamMessage(data, teamId, messageId) {
@@ -188,7 +227,7 @@ service cloud.firestore {
         && data.keys().hasOnly([
           'id', 'teamId', 'senderId', 'senderName', 'senderPosition', 'senderJersey',
           'senderRole', 'type', 'text', 'mediaURL', 'fileName',
-          'replyToId', 'replyToPreview', 'replyToSender', 'matchCardData',
+          'replyToId', 'replyToPreview', 'replyToSender', 'matchCardData', 'gamePlanCardData',
           'deliveryStatus', 'createdAt', 'updatedAt'
         ])
         && data.id == messageId
@@ -198,14 +237,15 @@ service cloud.firestore {
         && (!('senderPosition' in data) || (data.senderPosition is string && data.senderPosition.size() <= 60))
         && (!('senderJersey' in data) || (data.senderJersey is string && data.senderJersey.size() <= 6))
         && (!('senderRole' in data) || data.senderRole in ['coach', 'player'])
-        && data.type in ['text', 'audio', 'image', 'video', 'file', 'match_card']
+        && data.type in ['text', 'audio', 'image', 'video', 'file', 'match_card', 'game_plan_card']
         && (!('text' in data) || (data.text is string && data.text.size() <= 2000))
         && (!('mediaURL' in data) || (data.mediaURL is string && data.mediaURL.size() <= 2048))
         && (!('fileName' in data) || (data.fileName is string && data.fileName.size() <= 180))
         && (!('replyToId' in data) || (data.replyToId is string && data.replyToId.size() <= 128))
         && (!('replyToPreview' in data) || (data.replyToPreview is string && data.replyToPreview.size() <= 200))
         && (!('replyToSender' in data) || (data.replyToSender is string && data.replyToSender.size() <= 80))
-        && (!('matchCardData' in data) || (data.matchCardData is map && data.matchCardData.size() <= 15))
+        && (!('matchCardData' in data) || (data.matchCardData is map && data.matchCardData.size() <= 25))
+        && (!('gamePlanCardData' in data) || (data.gamePlanCardData is map && data.gamePlanCardData.size() <= 15))
         && data.deliveryStatus in ['delivered', 'read']
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
@@ -213,7 +253,12 @@ service cloud.firestore {
 
     function isValidTeamMatch(data, teamId, matchId) {
       return data.keys().hasAll(['id', 'teamId', 'opponent', 'teamScore', 'opponentScore', 'outcome', 'matchDate', 'createdBy', 'createdByName', 'createdAt'])
-        && data.keys().hasOnly(['id', 'teamId', 'opponent', 'teamScore', 'opponentScore', 'outcome', 'matchDate', 'location', 'createdBy', 'createdByName', 'createdAt'])
+        && data.keys().hasOnly([
+          'id', 'teamId', 'opponent', 'teamScore', 'opponentScore', 'outcome', 'matchDate', 'location',
+          'isLiveMatch', 'durationMinutes', 'hasHalftime', 'teamFouls', 'opponentFouls',
+          'teamPenalties', 'opponentPenalties', 'yellowCards', 'redCards', 'setScores', 'events',
+          'createdBy', 'createdByName', 'createdAt'
+        ])
         && data.id == matchId
         && data.teamId == teamId
         && data.opponent is string && data.opponent.size() >= 1 && data.opponent.size() <= 80
@@ -222,6 +267,17 @@ service cloud.firestore {
         && data.outcome in ['win', 'draw', 'loss']
         && data.matchDate is string && data.matchDate.size() >= 4 && data.matchDate.size() <= 30
         && (!('location' in data) || (data.location is string && data.location.size() <= 120))
+        && (!('isLiveMatch' in data) || data.isLiveMatch is bool)
+        && (!('durationMinutes' in data) || (data.durationMinutes is int && data.durationMinutes >= 1 && data.durationMinutes <= 240))
+        && (!('hasHalftime' in data) || data.hasHalftime is bool)
+        && (!('teamFouls' in data) || (data.teamFouls is int && data.teamFouls >= 0 && data.teamFouls <= 200))
+        && (!('opponentFouls' in data) || (data.opponentFouls is int && data.opponentFouls >= 0 && data.opponentFouls <= 200))
+        && (!('teamPenalties' in data) || (data.teamPenalties is int && data.teamPenalties >= 0 && data.teamPenalties <= 100))
+        && (!('opponentPenalties' in data) || (data.opponentPenalties is int && data.opponentPenalties >= 0 && data.opponentPenalties <= 100))
+        && (!('yellowCards' in data) || (data.yellowCards is int && data.yellowCards >= 0 && data.yellowCards <= 100))
+        && (!('redCards' in data) || (data.redCards is int && data.redCards >= 0 && data.redCards <= 100))
+        && (!('setScores' in data) || (data.setScores is list && data.setScores.size() <= 10 && (data.setScores.size() == 0 || data.setScores[0] is string)))
+        && (!('events' in data) || (data.events is list && data.events.size() <= 150 && (data.events.size() == 0 || data.events[0] is map)))
         && isValidId(data.createdBy)
         && data.createdByName is string && data.createdByName.size() >= 1 && data.createdByName.size() <= 80
         && data.createdAt is timestamp;
@@ -244,7 +300,7 @@ service cloud.firestore {
         && incoming().updatedAt == request.time
         && incoming().diff(existing()).affectedKeys().hasOnly([
           'displayName', 'photoURL', 'xp', 'streak', 'lastActivityDate',
-          'selectedSportId', 'activeTeamId', 'achievements', 'updatedAt'
+          'selectedSportId', 'selectedPositions', 'activeTeamId', 'achievements', 'updatedAt'
         ]);
       allow delete: if false;
 
@@ -384,8 +440,14 @@ service cloud.firestore {
           && incoming().joinedAt == existing().joinedAt
           && incoming().updatedAt == request.time
           && (
-            (isTeamOwnerOrCoach(teamId) && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'role', 'jerseyNumber', 'position', 'isStarter', 'updatedAt'])) ||
-            (isOwner(memberId) && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'jerseyNumber', 'position', 'isStarter', 'updatedAt']))
+            (isTeamOwnerOrCoach(teamId) && incoming().diff(existing()).affectedKeys().hasOnly([
+              'displayName', 'photoURL', 'role', 'jerseyNumber', 'position', 'isStarter',
+              'ovr', 'ovrAttributes', 'lastVideoSkill', 'aiSummary', 'ovrUpdatedAt', 'updatedAt'
+            ])) ||
+            (isOwner(memberId) && incoming().diff(existing()).affectedKeys().hasOnly([
+              'displayName', 'photoURL', 'jerseyNumber', 'position', 'isStarter',
+              'ovr', 'ovrAttributes', 'lastVideoSkill', 'aiSummary', 'ovrUpdatedAt', 'updatedAt'
+            ]))
           );
         allow delete: if isValidId(teamId) && isValidId(memberId) && isSignedIn()
           && (isOwner(memberId) || isTeamOwnerOrCoach(teamId));
@@ -422,6 +484,27 @@ service cloud.firestore {
           && incoming().createdAt == request.time;
         allow update: if false;
         allow delete: if isValidId(teamId) && isValidId(matchId) && isTeamOwnerOrCoach(teamId);
+      }
+
+      // Coach Game Plans
+      match /gamePlans/{planId} {
+        allow get: if isValidId(teamId) && isValidId(planId) && isTeamMember(teamId);
+        allow list: if isTeamMember(teamId);
+        allow create: if isValidId(teamId) && isValidId(planId) && isTeamOwnerOrCoach(teamId)
+          && isValidTeamGamePlan(incoming(), teamId, planId)
+          && incoming().createdBy == request.auth.uid
+          && incoming().createdAt == request.time;
+        allow update: if isValidId(teamId) && isValidId(planId) && isTeamOwnerOrCoach(teamId)
+          && isValidTeamGamePlan(incoming(), teamId, planId)
+          && incoming().id == existing().id
+          && incoming().teamId == existing().teamId
+          && incoming().sportId == existing().sportId
+          && incoming().createdBy == existing().createdBy
+          && incoming().createdAt == existing().createdAt
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'title', 'opponent', 'formation', 'tactics', 'trainingTitles', 'starterUids', 'aiSuggested', 'sharedInChat'
+          ]);
+        allow delete: if isValidId(teamId) && isValidId(planId) && isTeamOwnerOrCoach(teamId);
       }
     }
 

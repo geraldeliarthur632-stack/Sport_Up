@@ -34,6 +34,9 @@
           "type": "string",
           "maxLength": 64
         },
+        "selectedPositions": {
+          "type": "array"
+        },
         "activeTeamId": {
           "type": "string",
           "maxLength": 128
@@ -376,6 +379,24 @@
         "isStarter": {
           "type": "boolean"
         },
+        "ovr": {
+          "type": "integer"
+        },
+        "ovrAttributes": {
+          "type": "object"
+        },
+        "lastVideoSkill": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "aiSummary": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "ovrUpdatedAt": {
+          "type": "string",
+          "maxLength": 40
+        },
         "joinedAt": {
           "type": "string",
           "format": "date-time"
@@ -386,6 +407,76 @@
         }
       },
       "required": ["uid", "teamId", "displayName", "role", "isStarter", "joinedAt", "updatedAt"]
+    },
+    "TeamGamePlan": {
+      "title": "TeamGamePlan",
+      "description": "Coach game plan with tactical formation, selected training topics, and starting lineup.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "teamId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "sportId": {
+          "type": "string",
+          "enum": ["futsal", "futebol", "volei", "basquete", "pingpong"]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 100
+        },
+        "opponent": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "formation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "tactics": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "trainingTitles": {
+          "type": "array"
+        },
+        "starterUids": {
+          "type": "array"
+        },
+        "aiSuggested": {
+          "type": "boolean"
+        },
+        "sharedInChat": {
+          "type": "boolean"
+        },
+        "createdBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdByName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "teamId", "sportId", "title", "formation", "tactics", "createdBy", "createdByName", "createdAt"]
     },
     "TeamMessage": {
       "title": "TeamMessage",
@@ -429,7 +520,7 @@
         },
         "type": {
           "type": "string",
-          "enum": ["text", "audio", "image", "video", "file", "match_card"]
+          "enum": ["text", "audio", "image", "video", "file", "match_card", "game_plan_card"]
         },
         "text": {
           "type": "string",
@@ -456,6 +547,9 @@
           "maxLength": 80
         },
         "matchCardData": {
+          "type": "object"
+        },
+        "gamePlanCardData": {
           "type": "object"
         },
         "deliveryStatus": {
@@ -513,6 +607,39 @@
         "location": {
           "type": "string",
           "maxLength": 120
+        },
+        "isLiveMatch": {
+          "type": "boolean"
+        },
+        "durationMinutes": {
+          "type": "integer"
+        },
+        "hasHalftime": {
+          "type": "boolean"
+        },
+        "teamFouls": {
+          "type": "integer"
+        },
+        "opponentFouls": {
+          "type": "integer"
+        },
+        "teamPenalties": {
+          "type": "integer"
+        },
+        "opponentPenalties": {
+          "type": "integer"
+        },
+        "yellowCards": {
+          "type": "integer"
+        },
+        "redCards": {
+          "type": "integer"
+        },
+        "setScores": {
+          "type": "array"
+        },
+        "events": {
+          "type": "array"
         },
         "createdBy": {
           "type": "string",
@@ -609,7 +736,11 @@
     },
     "/teams/{teamId}/matches/{matchId}": {
       "schema": { "$ref": "#/entities/TeamMatch" },
-      "description": "Team match results and history."
+      "description": "Team match results and live-match timelines."
+    },
+    "/teams/{teamId}/gamePlans/{planId}": {
+      "schema": { "$ref": "#/entities/TeamGamePlan" },
+      "description": "Coach tactical game plans and selected team drills."
     },
     "/sports/{sportId}": {
       "schema": { "$ref": "#/entities/SportCatalog" },

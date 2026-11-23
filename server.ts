@@ -1,6 +1,8 @@
+import 'dotenv/config';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { GoogleGenAI, Type } from '@google/genai';
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
 
@@ -293,9 +295,28 @@ async function loadAndNormalizeWallet(uid: string, idToken: string): Promise<{
   return { chips, subscription, changed: subChanged || chipsChanged };
 }
 
+function getGeminiClient(): GoogleGenAI {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY não configurada no servidor.');
+  }
+  return new GoogleGenAI({
+    apiKey,
+    httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
+  });
+}
+
+const SPORT_STAT_KEYS: Record<string, string[]> = {
+  futsal: ['PAS', 'CHU', 'DRI', 'VEL', 'DEF', 'FIS'],
+  futebol: ['PAS', 'CHU', 'DRI', 'VEL', 'DEF', 'FIS'],
+  volei: ['SAQ', 'REC', 'LEV', 'ATA', 'BLO', 'AGI'],
+  basquete: ['ARR', 'INF', 'PAS', 'DEF', 'REB', 'FIS'],
+  pingpong: ['SAQ', 'FOR', 'BCK', 'EFE', 'REF', 'TAT'],
+};
+
 async function startServer() {
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ limit: '30mb' }));
 
   // Auth middleware for server-side chip & subscription validation
   async function requireAuth(
@@ -523,6 +544,270 @@ async function startServer() {
       res.status(500).json({
         error: err instanceof Error ? err.message : 'Erro ao atualizar assinatura.',
       });
+    }
+  });
+
+  // AI Video Evaluation -> Player OVR Card (Gemini 4 Hydrogen)
+  app.post('/api/ai/evaluate-video', requireAuth, async (req, res) => {
+    try {
+      const {
+        sportId,
+        playerName,
+        position,
+        skillType,
+        videoBase64,
+        mimeType,
+      } = req.body as {
+        sportId?: string;
+        playerName?: string;
+        position?: string;
+        skillType?: string;
+        videoBase64?: string;
+        mimeType?: string;
+      };
+
+      if (!sportId || !SPORT_STAT_KEYS[sportId]) {
+        res.status(400).json({ error: 'Esporte inválido para avaliação.' });
+        return;
+      }
+      if (!videoBase64 || typeof videoBase64 !== 'string') {
+        res.status(400).json({ error: 'Envie ou grave um vídeo da jogada para a IA avaliar.' });
+        return;
+      }
+
+      const cleanBase64 = videoBase64.includes(',')
+        ? videoBase64.split(',').pop() || ''
+        : videoBase64;
+      const safeMime =
+        typeof mimeType === 'string' && mimeType.startsWith('video/')
+          ? mimeType.split(';')[0]
+          : 'video/mp4';
+
+      const statKeys = SPORT_STAT_KEYS[sportId];
+      const ai = getGeminiClient();
+
+      const prompt = [
+        `Você é um olheiro e treinador esportivo especialista em ${sportId.toUpperCase()}.`,
+        `Analise cuidadosamente o vídeo enviado pelo(a) atleta "${playerName || 'Atleta'}" (posição: ${position || 'Geral'}, fundamento demonstrado: ${skillType || 'Jogada técnica'}).`,
+        `Avalie postura corporal, técnica de execução (passe, chute, saque, arremesso, bloqueio, raquete etc.), equilíbrio, velocidade de reação e precisão mostrados no vídeo.`,
+        `Atribua:`,
+        `1) Um OVR geral realista entre 55 e 97;`,
+        `2) Exatamente 6 atributos com os códigos [${statKeys.join(', ')}] (valores de 48 a 99);`,
+        `3) Um resumo claro em português simples do que foi observado no vídeo (máximo 260 caracteres);`,
+        `4) Pontos fortes e 1 dica prática simples de melhoria.`,
+        `Se o vídeo mostrar pouco movimento ou for curto, faça uma avaliação honesta e construtiva com base no que é visível.`,
+      ].join('\n');
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                inlineData: {
+                  mimeType: safeMime,
+                  data: cleanBase64,
+                },
+              },
+              { text: prompt },
+            ],
+          },
+        ],
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              ovr: { type: Type.INTEGER },
+              stats: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    code: { type: Type.STRING },
+                    value: { type: Type.INTEGER },
+                  },
+                  required: ['code', 'value'],
+                },
+              },
+              videoSummary: { type: Type.STRING },
+              strengths: { type: Type.STRING },
+              improvementTip: { type: Type.STRING },
+            },
+            required: ['ovr', 'stats', 'videoSummary', 'strengths', 'improvementTip'],
+          },
+        },
+      });
+
+      const rawText = response.text;
+      if (!rawText) {
+        throw new Error('A IA não retornou resposta para o vídeo.');
+      }
+
+      const parsed = JSON.parse(rawText) as {
+        ovr: number;
+        stats: Array<{ code: string; value: number }>;
+        videoSummary: string;
+        strengths: string;
+        improvementTip: string;
+      };
+
+      const clamp = (n: number, min: number, max: number) =>
+        Math.max(min, Math.min(max, Math.round(Number(n) || min)));
+
+      const ovrAttributes: Record<string, number> = {};
+      statKeys.forEach((code, idx) => {
+        const hit =
+          parsed.stats?.find((s) => s.code?.toUpperCase() === code) ??
+          parsed.stats?.[idx];
+        ovrAttributes[code] = clamp(hit?.value ?? parsed.ovr ?? 72, 45, 99);
+      });
+
+      res.json({
+        ovr: clamp(parsed.ovr, 50, 99),
+        ovrAttributes,
+        videoSummary: String(parsed.videoSummary || '').slice(0, 560),
+        strengths: String(parsed.strengths || '').slice(0, 220),
+        improvementTip: String(parsed.improvementTip || '').slice(0, 220),
+      });
+    } catch (err) {
+      console.error('Erro em /api/ai/evaluate-video:', err);
+      const message =
+        err instanceof Error ? err.message : 'Erro ao avaliar vídeo com a IA.';
+      const status = message.includes('GEMINI_API_KEY') ? 503 : 500;
+      res.status(status).json({ error: message });
+    }
+  });
+
+  // AI Tactical Lineup & Strategy Suggestion
+  app.post('/api/ai/suggest-tactics', requireAuth, async (req, res) => {
+    try {
+      const { sportId, teamName, opponent, players } = req.body as {
+        sportId?: string;
+        teamName?: string;
+        opponent?: string;
+        players?: Array<{
+          uid: string;
+          displayName: string;
+          position?: string;
+          jerseyNumber?: string;
+          ovr?: number;
+          ovrAttributes?: Record<string, number>;
+          lastVideoSkill?: string;
+          aiSummary?: string;
+        }>;
+      };
+
+      if (!sportId || !SPORT_STAT_KEYS[sportId]) {
+        res.status(400).json({ error: 'Esporte inválido.' });
+        return;
+      }
+      if (!Array.isArray(players) || players.length === 0) {
+        res.status(400).json({ error: 'Nenhum jogador encontrado no elenco.' });
+        return;
+      }
+
+      const ai = getGeminiClient();
+      const starterTargets: Record<string, number> = {
+        futsal: 5,
+        futebol: 11,
+        volei: 6,
+        basquete: 5,
+        pingpong: 2,
+      };
+      const maxStarters = Math.min(players.length, starterTargets[sportId] || 5);
+
+      const prompt = [
+        `Você é o coordenador técnico de IA do time "${teamName || 'Meu Time'}" na modalidade ${sportId.toUpperCase()}.`,
+        opponent ? `Adversário previsto: ${opponent}.` : '',
+        `Abaixo estão os jogadores do elenco com seus OVRs, atributos, posições e resumos dos vídeos avaliados pela IA:`,
+        JSON.stringify(
+          players.map((p) => ({
+            uid: p.uid,
+            nome: p.displayName,
+            camisa: p.jerseyNumber || '-',
+            posicao: p.position || 'Geral',
+            ovr: p.ovr ?? 70,
+            atributos: p.ovrAttributes ?? {},
+            habilidadeVideo: p.lastVideoSkill || 'Não avaliado ainda',
+            resumoVideoIA: p.aiSummary || 'Sem análise de vídeo registrada',
+          })),
+          null,
+          2
+        ),
+        `Escolha até ${maxStarters} titulares ideais (usando exatamente os "uid" fornecidos) e coloque os restantes como reservas.`,
+        `Explique em linguagem simples e direta a formação ideal, as táticas de ataque e defesa, 3 jogadas ensaiadas para esse elenco e 3 focos de treino recomendados.`,
+      ]
+        .filter(Boolean)
+        .join('\n\n');
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              recommendedFormation: { type: Type.STRING },
+              starterUids: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+              },
+              reserveUids: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+              },
+              tacticalPlan: { type: Type.STRING },
+              keyPlays: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+              },
+              playerRoles: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    uid: { type: Type.STRING },
+                    displayName: { type: Type.STRING },
+                    assignedRole: { type: Type.STRING },
+                    tacticalReason: { type: Type.STRING },
+                  },
+                  required: ['uid', 'displayName', 'assignedRole', 'tacticalReason'],
+                },
+              },
+              recommendedTraining: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+              },
+            },
+            required: [
+              'recommendedFormation',
+              'starterUids',
+              'reserveUids',
+              'tacticalPlan',
+              'keyPlays',
+              'playerRoles',
+              'recommendedTraining',
+            ],
+          },
+        },
+      });
+
+      const rawText = response.text;
+      if (!rawText) {
+        throw new Error('A IA não retornou sugestão tática.');
+      }
+
+      const parsed = JSON.parse(rawText);
+      res.json(parsed);
+    } catch (err) {
+      console.error('Erro em /api/ai/suggest-tactics:', err);
+      const message =
+        err instanceof Error ? err.message : 'Erro ao gerar táticas com a IA.';
+      const status = message.includes('GEMINI_API_KEY') ? 503 : 500;
+      res.status(status).json({ error: message });
     }
   });
 

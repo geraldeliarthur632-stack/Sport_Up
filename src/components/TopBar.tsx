@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronDown, Coins, Flame, Sparkles } from 'lucide-react';
+import { ChevronDown, Coins, Flame, Moon, Sparkles, Sun } from 'lucide-react';
 import type { ChipWallet } from '../types/sportup';
 import { SportUpLogo } from './SportUpLogo';
 
@@ -7,6 +7,8 @@ interface TopBarProps {
   xp: number;
   streak: number;
   chips: ChipWallet | null;
+  theme: 'light' | 'dark';
+  onToggleTheme: () => void;
   onOpenStore: () => void;
 }
 
@@ -14,6 +16,8 @@ export const TopBar: React.FC<TopBarProps> = ({
   xp,
   streak,
   chips,
+  theme,
+  onToggleTheme,
   onOpenStore,
 }) => {
   const [showBreakdown, setShowBreakdown] = useState(false);
@@ -24,38 +28,58 @@ export const TopBar: React.FC<TopBarProps> = ({
   const totalChips = daily + purchased;
 
   return (
-    <header className="sticky top-0 z-30 h-[54px] bg-white/95 backdrop-blur-md border-b border-slate-200 px-4">
-      <div className="max-w-5xl mx-auto h-full flex items-center justify-between gap-3">
+    <header className="sticky top-0 z-30 h-[54px] bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4">
+      <div className="max-w-5xl mx-auto h-full flex items-center justify-between gap-2 sm:gap-3">
         {/* Zone 1: Brand */}
         <div className="shrink-0">
           <SportUpLogo size="sm" />
         </div>
 
         {/* Zone 2: Streak & XP metrics */}
-        <div className="flex items-center gap-4 text-xs sm:text-sm font-bold tabular-nums">
+        <div className="flex items-center gap-3 sm:gap-4 text-xs sm:text-sm font-bold tabular-nums">
           <div
-            className="flex items-center gap-1 text-orange-600"
+            className="flex items-center gap-1 text-orange-600 dark:text-orange-400"
             title="Sequência de dias"
           >
             <Flame className="w-4 h-4 fill-orange-500 text-orange-500" />
             <span>{streak}</span>
           </div>
-          <div className="flex items-center gap-1 text-amber-600" title="XP total">
+          <div className="flex items-center gap-1 text-amber-600 dark:text-amber-400" title="XP total">
             <Sparkles className="w-4 h-4 text-amber-500" />
             <span>{xp} XP</span>
           </div>
         </div>
 
-        {/* Zone 3: Chips/Coins Counter with breakdown popover */}
-        <div className="relative shrink-0">
+        {/* Zone 3: Modo Claro toggle + Chips Counter */}
+        <div className="relative shrink-0 flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={onToggleTheme}
+            title={theme === 'light' ? 'Modo Claro ativo (mudar p/ escuro)' : 'Mudar para Modo Claro'}
+            aria-label={theme === 'light' ? 'Ativar modo escuro' : 'Ativar modo claro'}
+            className="min-h-[38px] px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-extrabold flex items-center gap-1.5 transition"
+          >
+            {theme === 'light' ? (
+              <>
+                <Sun className="w-4 h-4 text-amber-500" />
+                <span className="hidden sm:inline">Modo Claro</span>
+              </>
+            ) : (
+              <>
+                <Moon className="w-4 h-4 text-sky-400" />
+                <span className="hidden sm:inline">Modo Escuro</span>
+              </>
+            )}
+          </button>
+
           <button
             type="button"
             onClick={() => setShowBreakdown((v) => !v)}
-            className="min-h-[40px] px-3 py-1.5 rounded-xl bg-amber-50 border-2 border-amber-300 text-amber-900 font-extrabold text-xs sm:text-sm flex items-center gap-1.5 tabular-nums whitespace-nowrap hover:bg-amber-100 transition"
+            className="min-h-[40px] px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/60 border-2 border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200 font-extrabold text-xs sm:text-sm flex items-center gap-1.5 tabular-nums whitespace-nowrap hover:bg-amber-100 transition"
           >
             <Coins className="w-4 h-4 text-amber-600" />
             <span>{isLoaded ? totalChips : '...'}</span>
-            <ChevronDown className="w-3.5 h-3.5 text-amber-700" />
+            <ChevronDown className="w-3.5 h-3.5 text-amber-700 dark:text-amber-300" />
           </button>
 
           {showBreakdown && (

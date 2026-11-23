@@ -265,6 +265,7 @@ export const LessonPlayerModal: React.FC<LessonPlayerModalProps> = ({
               <div>
                 <p className="text-xs font-bold text-emerald-700">
                   {sport.name} · {lesson.level}
+                  {lesson.unitTitle ? ` · ${lesson.unitTitle}` : ''}
                 </p>
                 <h1 className="text-2xl font-extrabold text-slate-900 mt-1">
                   {lesson.title}
@@ -272,11 +273,37 @@ export const LessonPlayerModal: React.FC<LessonPlayerModalProps> = ({
                 <p className="text-sm text-slate-600 mt-1">{lesson.subtitle}</p>
               </div>
 
+              {lesson.simpleTip && (
+                <div className="bg-amber-50 border-2 border-amber-200 rounded-2xl p-3.5 text-sm text-amber-950">
+                  <span className="font-extrabold block text-xs text-amber-800 mb-0.5">
+                    Em palavras simples:
+                  </span>
+                  <span className="font-semibold">{lesson.simpleTip}</span>
+                </div>
+              )}
+
               {lesson.kind === 'pratica' && lesson.practiceSteps ? (
-                <AnimatedPracticeStage
-                  sportId={lesson.sportId}
-                  steps={lesson.practiceSteps}
-                />
+                <div className="space-y-4">
+                  <AnimatedPracticeStage
+                    sportId={lesson.sportId}
+                    steps={lesson.practiceSteps}
+                  />
+                  {slides[0] && (
+                    <div className="bg-white border-2 border-slate-200 rounded-3xl p-4 sm:p-5 space-y-2.5 shadow-sm">
+                      <h2 className="text-base font-extrabold text-slate-900">
+                        {slides[0].title}
+                      </h2>
+                      <p className="text-sm text-slate-700 leading-relaxed">
+                        {slides[0].body}
+                      </p>
+                      {slides[0].highlight && (
+                        <div className="bg-sky-50 border border-sky-200 rounded-xl p-3 text-xs font-bold text-sky-900">
+                          {slides[0].highlight}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               ) : (
                 slides[slideIdx] && (
                   <div className="bg-white border-2 border-slate-200 rounded-3xl p-5 sm:p-6 space-y-4 shadow-sm">
@@ -597,14 +624,30 @@ export const LessonPlayerModal: React.FC<LessonPlayerModalProps> = ({
                 </div>
               </div>
 
-              <button
-                type="button"
-                disabled={saving}
-                onClick={onClose}
-                className="w-full min-h-[52px] rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold text-base border-b-4 border-emerald-700 transition"
-              >
-                {saving ? 'Salvando progresso...' : 'Voltar para a trilha'}
-              </button>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => {
+                    setPhase('learn');
+                    setSlideIdx(0);
+                    setQIdx(0);
+                    setCorrectCount(0);
+                    setChecked(false);
+                  }}
+                  className="sm:w-52 min-h-[52px] rounded-2xl bg-white border-2 border-slate-300 border-b-4 text-slate-700 hover:bg-slate-50 font-extrabold text-sm transition"
+                >
+                  Assistir de novo
+                </button>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={onClose}
+                  className="flex-1 min-h-[52px] rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold text-base border-b-4 border-emerald-700 transition"
+                >
+                  {saving ? 'Salvando progresso...' : 'Voltar para a trilha'}
+                </button>
+              </div>
             </div>
           )}
         </div>

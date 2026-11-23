@@ -18,10 +18,13 @@ import {
   Calendar,
   Camera,
   Check,
+  ClipboardList,
   Copy,
   Edit3,
+  Eye,
   MapPin,
   MessageCircle,
+  Play,
   Plus,
   Share2,
   Shield,
@@ -45,13 +48,18 @@ import {
   formatTeamLineupShareText,
 } from '../lib/shareExport';
 import type {
+  MatchEvent,
   SportId,
   Team,
+  TeamGamePlan,
   TeamMatch,
   TeamMember,
   UserProfile,
   UserTeamMembershipRef,
 } from '../types/sportup';
+import { GamePlanPanel } from './GamePlanPanel';
+import { LiveMatchModal } from './LiveMatchModal';
+import { VideoOvrModal } from './PlayerOvrCardModal';
 import { ShareExportModal, type ShareExportPayload } from './ShareExportModal';
 import { TeamChat } from './TeamChat';
 
@@ -80,7 +88,10 @@ export const TeamTab: React.FC<TeamTabProps> = ({
   const [team, setTeam] = useState<Team | null>(null);
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [matches, setMatches] = useState<TeamMatch[]>([]);
-  const [teamSubTab, setTeamSubTab] = useState<'chat' | 'elenco' | 'partidas'>('chat');
+  const [gamePlans, setGamePlans] = useState<TeamGamePlan[]>([]);
+  const [teamSubTab, setTeamSubTab] = useState<
+    'chat' | 'elenco' | 'plano' | 'partidas'
+  >('chat');
 
   // Create/Join Mode
   const [flowMode, setFlowMode] = useState<'none' | 'create' | 'join'>('none');
@@ -114,18 +125,27 @@ export const TeamTab: React.FC<TeamTabProps> = ({
   const [joinPosition, setJoinPosition] = useState('');
   const [joinStarter, setJoinStarter] = useState(true);
 
-  // Roster Edit Modal
+  // Roster Edit & Video OVR Modal
   const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
+  const [evaluatingMember, setEvaluatingMember] = useState<TeamMember | null>(null);
   const [editJersey, setEditJersey] = useState('');
   const [editPosition, setEditPosition] = useState('');
   const [editRole, setEditRole] = useState<'coach' | 'player'>('player');
   const [editStarter, setEditStarter] = useState(true);
 
-  // Match Form
+  // Match Forms (Quick Add + Live Match + Ver Melhor details)
   const [showMatchForm, setShowMatchForm] = useState(false);
+  const [showLiveMatch, setShowLiveMatch] = useState(false);
+  const [expandedMatches, setExpandedMatches] = useState<Record<string, boolean>>({});
   const [opponent, setOpponent] = useState('');
   const [teamScore, setTeamScore] = useState('0');
   const [opponentScore, setOpponentScore] = useState('0');
+  const [manualTeamFouls, setManualTeamFouls] = useState('0');
+  const [manualOppFouls, setManualOppFouls] = useState('0');
+  const [manualTeamPenalties, setManualTeamPenalties] = useState('0');
+  const [manualOppPenalties, setManualOppPenalties] = useState('0');
+  const [manualYellowCards, setManualYellowCards] = useState('0');
+  const [manualRedCards, setManualRedCards] = useState('0');
   const [matchDate, setMatchDate] = useState(() =>
     new Date().toISOString().slice(0, 10)
   );
@@ -199,10 +219,20 @@ export const TeamTab: React.FC<TeamTabProps> = ({
       (err) => handleFirestoreError(err, OperationType.LIST, matchesPath)
     );
 
+    const plansPath = `teams/${activeTeamId}/gamePlans`;
+    const unsubPlans = onSnapshot(
+      query(collection(db, plansPath), orderBy('createdAt', 'desc')),
+      (snap) => {
+        setGamePlans(snap.docs.map((d) => d.data() as TeamGamePlan));
+      },
+      (err) => handleFirestoreError(err, OperationType.LIST, plansPath)
+    );
+
     return () => {
       unsubTeam();
       unsubMembers();
       unsubMatches();
+      unsubPlans();
     };
   }, [activeTeamId]);
 
@@ -462,35 +492,238 @@ export const TeamTab: React.FC<TeamTabProps> = ({
     }
   };
 
-  const handleRecordMatch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!team || !currentMember || !opponent.trim()) return;
-    setBusy(true);
+  const handleAddRosterPlayer = async (payload: {
+    displayName: string;
+    jerseyNumber: string;
+    position: string;
+    isStarter: boolean;
+  }) => {
+    if (!team) return;
+    const memberUid = `roster_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    try {
+      await setDoc(doc(db, 'teams', team.id, 'members', memberUid), {
+        uid: memberUid,
+        teamId: team.id,
+        displayName: payload.displayName,
+        role: 'player',
+        jerseyNumber: payload.jerseyNumber,
+        position: payload.position,
+        isStarter: payload.isStarter,
+        joinedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    } catch (err) {
+      handleFirestoreError(
+        err,
+        OperationType.CREATE,
+        `teams/${team.id}/members/${memberUid}`
+      );
+    }
+  };
 
-    const tScore = Math.max(0, Number(teamScore) || 0);
-    const oScore = Math.max(0, Number(opponentScore) || 0);
+  const handleSaveMemberOvr = async (
+    memberUid: string,
+    payload: {
+      ovr: number;
+      ovrAttributes: Record<string, number>;
+      lastVideoSkill: string;
+      aiSummary: string;
+    }
+  ) => {
+    if (!team) return;
+    try {
+      await updateDoc(doc(db, 'teams', team.id, 'members', memberUid), {
+        ovr: payload.ovr,
+        ovrAttributes: payload.ovrAttributes,
+        lastVideoSkill: payload.lastVideoSkill.slice(0, 100),
+        aiSummary: payload.aiSummary.slice(0, 580),
+        ovrUpdatedAt: new Date().toISOString().slice(0, 30),
+        updatedAt: serverTimestamp(),
+      });
+    } catch (err) {
+      handleFirestoreError(
+        err,
+        OperationType.UPDATE,
+        `teams/${team.id}/members/${memberUid}`
+      );
+    }
+  };
+
+  const handleApplyAiLineup = async (starterUids: string[]) => {
+    if (!team) return;
+    const starterSet = new Set(starterUids);
+    const playerMembers = members.filter((m) => m.role === 'player');
+    await Promise.all(
+      playerMembers.map((m) =>
+        updateDoc(doc(db, 'teams', team.id, 'members', m.uid), {
+          isStarter: starterSet.has(m.uid),
+          updatedAt: serverTimestamp(),
+        })
+      )
+    );
+  };
+
+  const handleSaveGamePlan = async (payload: {
+    title: string;
+    opponent: string;
+    formation: string;
+    tactics: string;
+    trainingTitles: string[];
+    starterUids: string[];
+    aiSuggested: boolean;
+  }) => {
+    if (!team || !currentMember) return;
+    const planId = `plan_${Date.now()}`;
+    const docData: Record<string, unknown> = {
+      id: planId,
+      teamId: team.id,
+      sportId: team.sportId,
+      title: payload.title.slice(0, 100),
+      formation: payload.formation.slice(0, 80),
+      tactics: payload.tactics.slice(0, 2000),
+      trainingTitles: payload.trainingTitles.slice(0, 6),
+      starterUids: payload.starterUids.slice(0, 20),
+      aiSuggested: payload.aiSuggested,
+      sharedInChat: false,
+      createdBy: userProfile.uid,
+      createdByName: currentMember.displayName,
+      createdAt: serverTimestamp(),
+    };
+    if (payload.opponent) {
+      docData.opponent = payload.opponent.slice(0, 80);
+    }
+    try {
+      await setDoc(doc(db, 'teams', team.id, 'gamePlans', planId), docData);
+    } catch (err) {
+      handleFirestoreError(
+        err,
+        OperationType.CREATE,
+        `teams/${team.id}/gamePlans/${planId}`
+      );
+    }
+  };
+
+  const handleSharePlanToChat = async (plan: TeamGamePlan) => {
+    if (!team || !currentMember) return;
+    const starters = members.filter((m) => m.role === 'player' && m.isStarter);
+    const starterSummary = starters
+      .map((s) => `${s.displayName}${s.ovr ? ` (OVR ${s.ovr})` : ''}`)
+      .join(', ')
+      .slice(0, 400);
+
+    const chatMsgId = `msg_${Date.now()}_plan`;
+    try {
+      await setDoc(doc(db, 'teams', team.id, 'messages', chatMsgId), {
+        id: chatMsgId,
+        teamId: team.id,
+        senderId: userProfile.uid,
+        senderName: currentMember.displayName,
+        senderRole: currentMember.role,
+        type: 'game_plan_card',
+        gamePlanCardData: {
+          planId: plan.id,
+          title: plan.title,
+          opponent: plan.opponent || '',
+          formation: plan.formation,
+          tactics: plan.tactics.slice(0, 900),
+          trainings: (plan.trainingTitles ?? []).slice(0, 6),
+          starterSummary: starterSummary || 'Escalação em definição',
+          aiSuggested: Boolean(plan.aiSuggested),
+        },
+        deliveryStatus: 'delivered',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      await updateDoc(doc(db, 'teams', team.id, 'gamePlans', plan.id), {
+        sharedInChat: true,
+      }).catch(() => {});
+      setTeamSubTab('chat');
+    } catch (err) {
+      handleFirestoreError(
+        err,
+        OperationType.CREATE,
+        `teams/${team.id}/messages/${chatMsgId}`
+      );
+    }
+  };
+
+  const handleDeletePlan = async (planId: string) => {
+    if (!team) return;
+    try {
+      await deleteDoc(doc(db, 'teams', team.id, 'gamePlans', planId));
+    } catch (err) {
+      handleFirestoreError(
+        err,
+        OperationType.DELETE,
+        `teams/${team.id}/gamePlans/${planId}`
+      );
+    }
+  };
+
+  const persistMatchAndPostChat = async (params: {
+    opponent: string;
+    teamScore: number;
+    opponentScore: number;
+    matchDate: string;
+    location?: string;
+    isLiveMatch?: boolean;
+    durationMinutes?: number;
+    hasHalftime?: boolean;
+    teamFouls?: number;
+    opponentFouls?: number;
+    teamPenalties?: number;
+    opponentPenalties?: number;
+    yellowCards?: number;
+    redCards?: number;
+    setScores?: string[];
+    events?: MatchEvent[];
+  }) => {
+    if (!team || !currentMember) return;
+    const tScore = Math.max(0, params.teamScore);
+    const oScore = Math.max(0, params.opponentScore);
     const outcome: 'win' | 'draw' | 'loss' =
       tScore > oScore ? 'win' : tScore === oScore ? 'draw' : 'loss';
     const matchId = `match_${Date.now()}`;
 
-    try {
-      const matchPayload: Record<string, unknown> = {
-        id: matchId,
-        teamId: team.id,
-        opponent: opponent.trim(),
-        teamScore: tScore,
-        opponentScore: oScore,
-        outcome,
-        matchDate,
-        createdBy: userProfile.uid,
-        createdByName: currentMember.displayName,
-        createdAt: serverTimestamp(),
-      };
-      if (matchLocation.trim()) matchPayload.location = matchLocation.trim();
+    const matchPayload: Record<string, unknown> = {
+      id: matchId,
+      teamId: team.id,
+      opponent: params.opponent.trim(),
+      teamScore: tScore,
+      opponentScore: oScore,
+      outcome,
+      matchDate: params.matchDate,
+      createdBy: userProfile.uid,
+      createdByName: currentMember.displayName,
+      createdAt: serverTimestamp(),
+    };
+    if (params.location?.trim()) matchPayload.location = params.location.trim();
+    if (typeof params.isLiveMatch === 'boolean')
+      matchPayload.isLiveMatch = params.isLiveMatch;
+    if (typeof params.durationMinutes === 'number')
+      matchPayload.durationMinutes = params.durationMinutes;
+    if (typeof params.hasHalftime === 'boolean')
+      matchPayload.hasHalftime = params.hasHalftime;
+    if (typeof params.teamFouls === 'number')
+      matchPayload.teamFouls = params.teamFouls;
+    if (typeof params.opponentFouls === 'number')
+      matchPayload.opponentFouls = params.opponentFouls;
+    if (typeof params.teamPenalties === 'number')
+      matchPayload.teamPenalties = params.teamPenalties;
+    if (typeof params.opponentPenalties === 'number')
+      matchPayload.opponentPenalties = params.opponentPenalties;
+    if (typeof params.yellowCards === 'number')
+      matchPayload.yellowCards = params.yellowCards;
+    if (typeof params.redCards === 'number')
+      matchPayload.redCards = params.redCards;
+    if (params.setScores && params.setScores.length > 0)
+      matchPayload.setScores = params.setScores.slice(0, 10);
+    if (params.events && params.events.length > 0)
+      matchPayload.events = params.events.slice(0, 100);
 
+    try {
       await setDoc(doc(db, 'teams', team.id, 'matches', matchId), matchPayload);
 
-      // Update team W/D/L counters
       const statField =
         outcome === 'win' ? 'wins' : outcome === 'draw' ? 'draws' : 'losses';
       await updateDoc(doc(db, 'teams', team.id), {
@@ -498,9 +731,16 @@ export const TeamTab: React.FC<TeamTabProps> = ({
         updatedAt: serverTimestamp(),
       });
 
-      // Automatically post a match card in the Team Chat
+      const eventsSummary = (params.events ?? [])
+        .slice(0, 6)
+        .map(
+          (ev) =>
+            `${ev.minuteLabel} ${ev.kind === 'yellow_card' ? 'Cartão Amarelo' : ev.kind === 'red_card' ? 'Cartão Vermelho' : ev.kind === 'foul' ? 'Falta' : ev.kind.startsWith('penalty') ? 'Pênalti' : 'Ponto'} (${ev.side === 'team' ? team.name : params.opponent})`
+        )
+        .join('\n');
+
       const chatMsgId = `msg_${Date.now()}_match`;
-      const chatMsgPayload: Record<string, unknown> = {
+      await setDoc(doc(db, 'teams', team.id, 'messages', chatMsgId), {
         id: chatMsgId,
         teamId: team.id,
         senderId: userProfile.uid,
@@ -509,33 +749,67 @@ export const TeamTab: React.FC<TeamTabProps> = ({
         type: 'match_card',
         matchCardData: {
           matchId,
-          opponent: opponent.trim(),
+          opponent: params.opponent.trim(),
           teamScore: tScore,
           opponentScore: oScore,
           outcome,
-          matchDate,
-          location: matchLocation.trim() || '',
+          matchDate: params.matchDate,
+          location: params.location?.trim() || '',
+          isLiveMatch: Boolean(params.isLiveMatch),
+          durationMinutes: params.durationMinutes ?? 0,
+          hasHalftime: Boolean(params.hasHalftime),
+          teamFouls: params.teamFouls ?? 0,
+          opponentFouls: params.opponentFouls ?? 0,
+          teamPenalties: params.teamPenalties ?? 0,
+          opponentPenalties: params.opponentPenalties ?? 0,
+          yellowCards: params.yellowCards ?? 0,
+          redCards: params.redCards ?? 0,
+          eventsSummary,
         },
         deliveryStatus: 'delivered',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-      };
-      await setDoc(
-        doc(db, 'teams', team.id, 'messages', chatMsgId),
-        chatMsgPayload
-      );
-
-      setOpponent('');
-      setTeamScore('0');
-      setOpponentScore('0');
-      setMatchLocation('');
-      setShowMatchForm(false);
+      });
     } catch (err) {
       handleFirestoreError(
         err,
         OperationType.CREATE,
         `teams/${team.id}/matches/${matchId}`
       );
+    }
+  };
+
+  const handleRecordMatch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!team || !currentMember || !opponent.trim()) return;
+    setBusy(true);
+    try {
+      await persistMatchAndPostChat({
+        opponent,
+        teamScore: Number(teamScore) || 0,
+        opponentScore: Number(opponentScore) || 0,
+        matchDate,
+        location: matchLocation,
+        isLiveMatch: false,
+        teamFouls: Math.max(0, Number(manualTeamFouls) || 0),
+        opponentFouls: Math.max(0, Number(manualOppFouls) || 0),
+        teamPenalties: Math.max(0, Number(manualTeamPenalties) || 0),
+        opponentPenalties: Math.max(0, Number(manualOppPenalties) || 0),
+        yellowCards: Math.max(0, Number(manualYellowCards) || 0),
+        redCards: Math.max(0, Number(manualRedCards) || 0),
+      });
+
+      setOpponent('');
+      setTeamScore('0');
+      setOpponentScore('0');
+      setManualTeamFouls('0');
+      setManualOppFouls('0');
+      setManualTeamPenalties('0');
+      setManualOppPenalties('0');
+      setManualYellowCards('0');
+      setManualRedCards('0');
+      setMatchLocation('');
+      setShowMatchForm(false);
     } finally {
       setBusy(false);
     }
@@ -1168,15 +1442,15 @@ export const TeamTab: React.FC<TeamTabProps> = ({
         </div>
       </section>
 
-      {/* Sub-navigation: Chat | Elenco | Partidas */}
-      <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-200/70 rounded-2xl">
+      {/* Sub-navigation: Chat | Escalação | Plano & IA | Partidas */}
+      <div className="grid grid-cols-4 gap-1.5 p-1 bg-slate-200/70 dark:bg-slate-800 rounded-2xl">
         <button
           type="button"
           onClick={() => setTeamSubTab('chat')}
-          className={`min-h-[42px] rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 transition ${
+          className={`min-h-[42px] rounded-xl text-xs font-extrabold flex items-center justify-center gap-1 transition ${
             teamSubTab === 'chat'
-              ? 'bg-white text-slate-900 shadow-sm'
-              : 'text-slate-600'
+              ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
+              : 'text-slate-600 dark:text-slate-400'
           }`}
         >
           <MessageCircle className="w-4 h-4" />
@@ -1185,10 +1459,10 @@ export const TeamTab: React.FC<TeamTabProps> = ({
         <button
           type="button"
           onClick={() => setTeamSubTab('elenco')}
-          className={`min-h-[42px] rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 transition ${
+          className={`min-h-[42px] rounded-xl text-xs font-extrabold flex items-center justify-center gap-1 transition ${
             teamSubTab === 'elenco'
-              ? 'bg-white text-slate-900 shadow-sm'
-              : 'text-slate-600'
+              ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
+              : 'text-slate-600 dark:text-slate-400'
           }`}
         >
           <Users className="w-4 h-4" />
@@ -1196,11 +1470,23 @@ export const TeamTab: React.FC<TeamTabProps> = ({
         </button>
         <button
           type="button"
+          onClick={() => setTeamSubTab('plano')}
+          className={`min-h-[42px] rounded-xl text-xs font-extrabold flex items-center justify-center gap-1 transition ${
+            teamSubTab === 'plano'
+              ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 shadow-sm'
+              : 'text-slate-600 dark:text-slate-400'
+          }`}
+        >
+          <ClipboardList className="w-4 h-4" />
+          <span>Plano & Over</span>
+        </button>
+        <button
+          type="button"
           onClick={() => setTeamSubTab('partidas')}
-          className={`min-h-[42px] rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 transition ${
+          className={`min-h-[42px] rounded-xl text-xs font-extrabold flex items-center justify-center gap-1 transition ${
             teamSubTab === 'partidas'
-              ? 'bg-white text-slate-900 shadow-sm'
-              : 'text-slate-600'
+              ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
+              : 'text-slate-600 dark:text-slate-400'
           }`}
         >
           <Trophy className="w-4 h-4" />
@@ -1214,6 +1500,23 @@ export const TeamTab: React.FC<TeamTabProps> = ({
           team={team}
           currentMember={currentMember}
           currentUserId={userProfile.uid}
+        />
+      )}
+
+      {/* Plano de Jogo, Cartas de Over & Táticas IA Sub-tab */}
+      {teamSubTab === 'plano' && (
+        <GamePlanPanel
+          team={team}
+          members={members}
+          gamePlans={gamePlans}
+          currentUserId={userProfile.uid}
+          canManageRoster={canManageRoster}
+          onOpenEvaluateVideo={(m) => setEvaluatingMember(m)}
+          onAddRosterPlayer={handleAddRosterPlayer}
+          onApplyAiLineup={handleApplyAiLineup}
+          onSaveGamePlan={handleSaveGamePlan}
+          onSharePlanToChat={handleSharePlanToChat}
+          onDeletePlan={handleDeletePlan}
         />
       )}
 
@@ -1274,8 +1577,13 @@ export const TeamTab: React.FC<TeamTabProps> = ({
                 )}
 
                 <div className="min-w-0">
-                  <p className="text-sm font-extrabold text-slate-900 truncate">
-                    {m.displayName}
+                  <p className="text-sm font-extrabold text-slate-900 truncate flex items-center gap-1.5">
+                    <span className="truncate">{m.displayName}</span>
+                    {typeof m.ovr === 'number' && (
+                      <span className="px-1.5 py-0.5 rounded-lg bg-amber-100 text-amber-900 text-[11px] font-extrabold tabular-nums shrink-0">
+                        OVR {m.ovr}
+                      </span>
+                    )}
                   </p>
                   <p className="text-xs text-slate-500">
                     {m.position || 'Jogador'} · Camisa {m.jerseyNumber || '-'}
@@ -1722,22 +2030,33 @@ export const TeamTab: React.FC<TeamTabProps> = ({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setShowMatchForm((v) => !v)}
-            className="w-full min-h-[48px] rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold text-sm border-b-4 border-emerald-700 flex items-center justify-center gap-2 transition"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Registrar nova partida</span>
-          </button>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => setShowLiveMatch(true)}
+              className="w-full min-h-[50px] rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold text-sm border-b-4 border-emerald-700 flex items-center justify-center gap-2 transition"
+            >
+              <Play className="w-4 h-4 fill-current" />
+              <span>Fazer Partida Ao Vivo</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowMatchForm((v) => !v)}
+              className="w-full min-h-[50px] rounded-2xl bg-sky-500 hover:bg-sky-600 text-white font-extrabold text-sm border-b-4 border-sky-700 flex items-center justify-center gap-2 transition"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Adicionar partida</span>
+            </button>
+          </div>
 
           {showMatchForm && (
             <form
               onSubmit={handleRecordMatch}
-              className="bg-white border-2 border-slate-200 rounded-3xl p-4 space-y-3"
+              className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-3xl p-4 space-y-3"
             >
               <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">
+                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">
                   Nome do adversário
                 </label>
                 <input
@@ -1745,14 +2064,14 @@ export const TeamTab: React.FC<TeamTabProps> = ({
                   required
                   value={opponent}
                   onChange={(e) => setOpponent(e.target.value)}
-                  placeholder="Ex: União Futsal"
-                  className="w-full min-h-[44px] px-3 rounded-2xl border-2 border-slate-200 text-sm font-medium"
+                  placeholder={`Ex: União ${teamSport.name}`}
+                  className="w-full min-h-[44px] px-3 rounded-2xl border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">
+                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">
                     Placar {team.name}
                   </label>
                   <input
@@ -1761,11 +2080,11 @@ export const TeamTab: React.FC<TeamTabProps> = ({
                     required
                     value={teamScore}
                     onChange={(e) => setTeamScore(e.target.value)}
-                    className="w-full min-h-[44px] px-3 rounded-2xl border-2 border-slate-200 text-base font-extrabold tabular-nums"
+                    className="w-full min-h-[44px] px-3 rounded-2xl border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-base font-extrabold tabular-nums"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">
+                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">
                     Placar Adversário
                   </label>
                   <input
@@ -1774,14 +2093,90 @@ export const TeamTab: React.FC<TeamTabProps> = ({
                     required
                     value={opponentScore}
                     onChange={(e) => setOpponentScore(e.target.value)}
-                    className="w-full min-h-[44px] px-3 rounded-2xl border-2 border-slate-200 text-base font-extrabold tabular-nums"
+                    className="w-full min-h-[44px] px-3 rounded-2xl border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-base font-extrabold tabular-nums"
+                  />
+                </div>
+              </div>
+
+              {/* Optional Fouls, Penalties & Cards for ALL 5 sports */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 bg-slate-50 dark:bg-slate-800 rounded-2xl p-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                    Nossas Faltas
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={manualTeamFouls}
+                    onChange={(e) => setManualTeamFouls(e.target.value)}
+                    className="w-full min-h-[38px] px-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-extrabold tabular-nums"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                    Faltas Adversário
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={manualOppFouls}
+                    onChange={(e) => setManualOppFouls(e.target.value)}
+                    className="w-full min-h-[38px] px-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-extrabold tabular-nums"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                    Nossos Pênaltis
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={manualTeamPenalties}
+                    onChange={(e) => setManualTeamPenalties(e.target.value)}
+                    className="w-full min-h-[38px] px-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-extrabold tabular-nums"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                    Pênaltis Adversário
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={manualOppPenalties}
+                    onChange={(e) => setManualOppPenalties(e.target.value)}
+                    className="w-full min-h-[38px] px-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-extrabold tabular-nums"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-amber-700 dark:text-amber-300 mb-1">
+                    Cartões Amarelos
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={manualYellowCards}
+                    onChange={(e) => setManualYellowCards(e.target.value)}
+                    className="w-full min-h-[38px] px-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-extrabold tabular-nums"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-rose-700 dark:text-rose-300 mb-1">
+                    Cartões Vermelhos
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={manualRedCards}
+                    onChange={(e) => setManualRedCards(e.target.value)}
+                    className="w-full min-h-[38px] px-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-extrabold tabular-nums"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">
+                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">
                     Data
                   </label>
                   <input
@@ -1789,11 +2184,11 @@ export const TeamTab: React.FC<TeamTabProps> = ({
                     required
                     value={matchDate}
                     onChange={(e) => setMatchDate(e.target.value)}
-                    className="w-full min-h-[44px] px-3 rounded-2xl border-2 border-slate-200 text-sm"
+                    className="w-full min-h-[44px] px-3 rounded-2xl border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">
+                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">
                     Local (opcional)
                   </label>
                   <input
@@ -1801,7 +2196,7 @@ export const TeamTab: React.FC<TeamTabProps> = ({
                     value={matchLocation}
                     onChange={(e) => setMatchLocation(e.target.value)}
                     placeholder="Ex: Ginásio Municipal"
-                    className="w-full min-h-[44px] px-3 rounded-2xl border-2 border-slate-200 text-sm"
+                    className="w-full min-h-[44px] px-3 rounded-2xl border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
                   />
                 </div>
               </div>
@@ -1824,6 +2219,7 @@ export const TeamTab: React.FC<TeamTabProps> = ({
               </p>
             )}
             {matches.map((mt) => {
+              const isExpanded = Boolean(expandedMatches[mt.id]);
               const badge =
                 mt.outcome === 'win'
                   ? 'Vitória'
@@ -1837,15 +2233,22 @@ export const TeamTab: React.FC<TeamTabProps> = ({
                     ? 'text-amber-700 bg-amber-50 border-amber-200'
                     : 'text-rose-700 bg-rose-50 border-rose-200';
 
+              const hasDetails =
+                mt.isLiveMatch ||
+                typeof mt.teamFouls === 'number' ||
+                typeof mt.yellowCards === 'number' ||
+                (mt.events && mt.events.length > 0);
+
               return (
                 <div
                   key={mt.id}
-                  className="bg-white border-2 border-slate-200 rounded-2xl p-4 space-y-2"
+                  className="bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-2xl p-4 space-y-2.5"
                 >
                   <div className="flex items-center justify-between text-xs">
-                    <span className="flex items-center gap-1.5 text-slate-500 font-semibold">
+                    <span className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 font-semibold">
                       <Calendar className="w-3.5 h-3.5" />
                       {mt.matchDate}
+                      {mt.isLiveMatch && ' · Ao Vivo'}
                       {mt.location && (
                         <>
                           <span>·</span>
@@ -1861,7 +2264,7 @@ export const TeamTab: React.FC<TeamTabProps> = ({
                     </span>
                   </div>
 
-                  <div className="flex items-center justify-between text-base font-extrabold text-slate-900 tabular-nums">
+                  <div className="flex items-center justify-between text-base font-extrabold text-slate-900 dark:text-white tabular-nums">
                     <span>{team.name}</span>
                     <span className="text-lg">
                       {mt.teamScore} x {mt.opponentScore}
@@ -1869,7 +2272,64 @@ export const TeamTab: React.FC<TeamTabProps> = ({
                     <span>{mt.opponent}</span>
                   </div>
 
-                  <div className="pt-1 flex justify-end">
+                  {isExpanded && hasDetails && (
+                    <div className="bg-slate-50 dark:bg-slate-800 rounded-2xl p-3 text-xs space-y-2 border border-slate-200 dark:border-slate-700 tabular-nums">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 font-bold text-slate-700 dark:text-slate-200">
+                        <span>Faltas: {mt.teamFouls ?? 0} x {mt.opponentFouls ?? 0}</span>
+                        <span>Pênaltis: {mt.teamPenalties ?? 0} x {mt.opponentPenalties ?? 0}</span>
+                        <span className="text-amber-700 dark:text-amber-300">Amarelos: {mt.yellowCards ?? 0}</span>
+                        <span className="text-rose-700 dark:text-rose-300">Vermelhos: {mt.redCards ?? 0}</span>
+                      </div>
+
+                      {mt.durationMinutes && (
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Duração: {mt.durationMinutes} min · {mt.hasHalftime ? 'Com intervalo' : 'Sem intervalo'}
+                          {mt.setScores && mt.setScores.length > 0 ? ` · Sets: ${mt.setScores.join(' / ')}` : ''}
+                        </p>
+                      )}
+
+                      {mt.events && mt.events.length > 0 && (
+                        <div className="space-y-1 max-h-36 overflow-y-auto pt-1 border-t border-slate-200 dark:border-slate-700">
+                          {mt.events.map((ev) => (
+                            <p key={ev.id} className="text-[11px] text-slate-700 dark:text-slate-300">
+                              <strong className="text-emerald-700 dark:text-emerald-400">{ev.minuteLabel}</strong> ({ev.periodLabel}) ·{' '}
+                              {ev.kind === 'yellow_card'
+                                ? 'Cartão Amarelo'
+                                : ev.kind === 'red_card'
+                                  ? 'Cartão Vermelho'
+                                  : ev.kind === 'foul'
+                                    ? 'Falta'
+                                    : ev.kind === 'penalty_scored'
+                                      ? 'Pênalti Convertido'
+                                      : ev.kind === 'penalty_missed'
+                                        ? 'Pênalti Perdido'
+                                        : 'Gol/Ponto'}{' '}
+                              — {ev.side === 'team' ? team.name : mt.opponent}
+                              {ev.playerName ? ` (${ev.playerName})` : ''}
+                            </p>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="pt-1 flex flex-wrap justify-end gap-2">
+                    {hasDetails && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedMatches((prev) => ({
+                            ...prev,
+                            [mt.id]: !prev[mt.id],
+                          }))
+                        }
+                        className="min-h-[34px] px-3 rounded-xl bg-sky-50 hover:bg-sky-100 border border-sky-200 text-sky-900 text-xs font-bold flex items-center gap-1.5"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>{isExpanded ? 'Ver menos' : 'Ver melhor'}</span>
+                      </button>
+                    )}
+
                     <button
                       type="button"
                       onClick={() =>
@@ -1894,6 +2354,43 @@ export const TeamTab: React.FC<TeamTabProps> = ({
             })}
           </div>
         </section>
+      )}
+
+      {evaluatingMember && (
+        <VideoOvrModal
+          member={evaluatingMember}
+          sportId={team.sportId}
+          onClose={() => setEvaluatingMember(null)}
+          onSaveEvaluation={handleSaveMemberOvr}
+        />
+      )}
+
+      {showLiveMatch && (
+        <LiveMatchModal
+          team={team}
+          members={members}
+          onClose={() => setShowLiveMatch(false)}
+          onFinishSave={async (payload) => {
+            await persistMatchAndPostChat({
+              opponent: payload.opponent,
+              teamScore: payload.teamScore,
+              opponentScore: payload.opponentScore,
+              matchDate: new Date().toISOString().slice(0, 10),
+              location: payload.location,
+              isLiveMatch: true,
+              durationMinutes: payload.durationMinutes,
+              hasHalftime: payload.hasHalftime,
+              teamFouls: payload.teamFouls,
+              opponentFouls: payload.opponentFouls,
+              teamPenalties: payload.teamPenalties,
+              opponentPenalties: payload.opponentPenalties,
+              yellowCards: payload.yellowCards,
+              redCards: payload.redCards,
+              setScores: payload.setScores,
+              events: payload.events,
+            });
+          }}
+        />
       )}
 
       {sharePayload && (
